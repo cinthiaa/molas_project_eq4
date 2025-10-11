@@ -1,5 +1,4 @@
 [core]
-    remote = gdrive_remote
-['remote "gdrive_remote"']
-    url = gdrive://1lNfgRpPmRMCKfZ80TL8PZABWLCW7P1W4
-    gdrive_use_service_account = false
+    remote = local_remote
+['remote "local_remote"']
+    url = ../mlops_bikesharing_storage
