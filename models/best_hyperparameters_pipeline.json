@@ -1,0 +1,17 @@
+{
+  "random_forest": {
+    "model__max_depth": 25,
+    "model__max_features": "sqrt",
+    "model__min_samples_split": 2,
+    "model__n_estimators": 300
+  },
+  "gradient_boosting": {
+    "model__learning_rate": 0.05,
+    "model__max_depth": 7,
+    "model__n_estimators": 200,
+    "model__subsample": 0.8
+  },
+  "ridge_regression": {
+    "model__alpha": 1.0
+  }
+}

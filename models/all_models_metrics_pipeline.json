@@ -1,0 +1,83 @@
+{
+  "random_forest": {
+    "train": {
+      "rmse": 18.95914331324831,
+      "mae": 11.965099351198983,
+      "r2": 0.9769623604657902,
+      "mape": 27.939434840974652
+    },
+    "test": {
+      "rmse": 48.74150893170264,
+      "mae": 32.10957010197441,
+      "r2": 0.8486076500735633,
+      "mape": 70.16797339441854
+    },
+    "cv": {
+      "mean_rmse": 51.44532723665003,
+      "std_rmse": 1.6850253182169443
+    },
+    "timing": {
+      "train_time_seconds": 35.34726285934448,
+      "inference_time_ms": 0.051681730482313365
+    },
+    "best_params": {
+      "model__max_depth": 25,
+      "model__max_features": "sqrt",
+      "model__min_samples_split": 2,
+      "model__n_estimators": 300
+    }
+  },
+  "gradient_boosting": {
+    "train": {
+      "rmse": 27.358732716671675,
+      "mae": 17.07588485831067,
+      "r2": 0.9520274821721179,
+      "mape": 39.39670897648264
+    },
+    "test": {
+      "rmse": 40.69657414202423,
+      "mae": 25.369353818430735,
+      "r2": 0.8944588811838556,
+      "mape": 50.53875408645462
+    },
+    "cv": {
+      "mean_rmse": 43.81540775014784,
+      "std_rmse": 1.5793309019171313
+    },
+    "timing": {
+      "train_time_seconds": 55.181665897369385,
+      "inference_time_ms": 0.035204039679633245
+    },
+    "best_params": {
+      "model__learning_rate": 0.05,
+      "model__max_depth": 7,
+      "model__n_estimators": 200,
+      "model__subsample": 0.8
+    }
+  },
+  "ridge_regression": {
+    "train": {
+      "rmse": 83.48411029370375,
+      "mae": 64.4425897710345,
+      "r2": 0.5533079675530522,
+      "mape": 226.62110775832915
+    },
+    "test": {
+      "rmse": 84.13070198367456,
+      "mae": 65.72287722145715,
+      "r2": 0.5489600443947805,
+      "mape": 201.50919744233119
+    },
+    "cv": {
+      "mean_rmse": 83.63958027399035,
+      "std_rmse": 2.9005209852437455
+    },
+    "timing": {
+      "train_time_seconds": 0.1880199909210205,
+      "inference_time_ms": 0.006247096591525608
+    },
+    "best_params": {
+      "model__alpha": 1.0
+    }
+  }
+}
