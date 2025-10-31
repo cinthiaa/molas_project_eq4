@@ -109,6 +109,149 @@ def create_temp_bins(X):
     X['temp_bin'] = X['temp_bin'].fillna('mild')
     return X
 
+#Limpieza de datos numéricos y categóricos
+def remove_outliers(X, factor=1.5):
+    """
+    Función para eliminar outliers usando IQR.
+
+    Args:
+        X (array-like): Datos de entrada (numéricos).
+        factor (float): Umbral para determinar outliers (IQR * factor).
+    
+    Returns:
+        ndarray: Datos sin outliers.
+    """
+    X = pd.DataFrame(X)
+    for col in X.columns:
+        Q1 = X[col].quantile(0.25)
+        Q3 = X[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - factor * IQR
+        upper_bound = Q3 + factor * IQR
+        X = X[(X[col] >= lower_bound) & (X[col] <= upper_bound)]
+    return X.values
+
+def clean_and_fill_categorical(X, categorical_columns=None):
+    """
+    Función para reemplazar NaN por la moda y limpiar espacios en columnas categóricas.
+
+    Args:
+        X: DataFrame o array-like. Los datos de entrada.
+        categorical_columns (list, opcional): Si se especifica, solo aplica a estas columnas.
+    
+    Returns:
+        array: Datos con NaN reemplazados y espacios limpiados.
+    """
+    df = pd.DataFrame(X)
+    cat_cols = categorical_columns if categorical_columns else df.select_dtypes(include='object').columns
+    
+    for col in cat_cols:
+        # Imputar NaN por la moda
+        if df[col].isnull().any():
+            df.loc[df[col].isnull(), col] = df[col].mode()[0]
+        # Convertir a string, limpiar espacios y mantener como objeto
+        df[col] = df[col].astype(str).str.strip().astype('object')
+    
+    return df.values
+
+
+
+cat_valid_values = {
+    "season": {1.0, 2.0, 3.0, 4.0},
+    "yr": {0.0, 1.0},
+    "mnth": set(float(i) for i in range(1, 13)),     # 1.0 a 12.0
+    "hr": set(float(i) for i in range(0, 24)),       # 0.0 a 23.0
+    "holiday": {0.0, 1.0},
+    "weekday": set(float(i) for i in range(0, 7)),   # 0 a 6.0
+    "workingday": {0.0, 1.0},
+    "weathersit": {1.0, 2.0, 3.0, 4.0}
+}
+
+
+
+def clean_categorical_with_valid_set(categorical_columns=None, valid_values=None):
+    """
+    Función para limpiar columnas categóricas:
+    - Eliminar valores no numéricos (convertidos a NaN),
+    - Eliminar filas con valores no numéricos,
+    - Reemplazar valores fuera del conjunto válido por la moda.
+    
+    Args:
+        categorical_columns (list): Lista de columnas categóricas a limpiar.
+        valid_values (dict): Diccionario con conjunto válido de valores para cada columna.
+    
+    Returns:
+        function: Transformador para FunctionTransformer.
+    """
+    def _transform(X, categorical_columns=categorical_columns, valid_values=valid_values):
+        df = pd.DataFrame(X)
+        # Usar columnas categóricas pasadas o detectar automáticamente
+        cat_cols = categorical_columns if categorical_columns else df.select_dtypes(include='object').columns
+        
+        for col in cat_cols:
+            if valid_values and col in valid_values:
+                # Convertir valores validos a float para comparación coherente
+                valid_set = valid_values[col]
+
+                # Intentar convertir a numérico
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # Eliminar filas con valores no numéricos (ahora NaN)
+                non_numeric_count = df[col].isna().sum()
+                if non_numeric_count > 0:
+                    df = df.dropna(subset=[col])
+                    # print(f"Se eliminaron {non_numeric_count} registros con valores no numéricos en '{col}'.")  # Opcional: habilitar para dashboard/debug
+
+                # Detectar valores inválidos
+                invalid_mask = ~df[col].isin(valid_set)
+                invalid_count = invalid_mask.sum()
+                
+                if invalid_count > 0:
+                    moda = df[col].mode()[0]
+                    df.loc[invalid_mask, col] = moda
+                    # print(f"{invalid_count} valores inválidos en '{col}' fueron reemplazados por la moda ({moda}).")  # opcional: debug
+        
+        return df.values
+
+    return FunctionTransformer(_transform, validate=False, kw_args={'categorical_columns': categorical_columns, 'valid_values': valid_values})
+
+
+def impute_median(X, num_cols=None):
+    """
+    Reemplaza los valores NaN en columnas numéricas por la mediana.
+    
+    Args:
+        X (array-like): Datos de entrada.
+        num_cols (list, opcional): Columnas numéricas específicas.
+    
+    Returns:
+        array: Datos con valores NaN reemplazados por la mediana.
+    """
+    df = pd.DataFrame(X)
+    cols = num_cols if num_cols else df.select_dtypes(include='number').columns
+    df[cols] = df[cols].fillna(df[cols].median(numeric_only=True))
+    return df.values
+
+def drop_columns(X, columns_to_drop=None):
+    """
+    Elimina columnas especificadas de un DataFrame.
+    
+    Args:
+        X: DataFrame o array-like. Los datos de entrada.
+        columns_to_drop (list): Lista de nombres de columnas a eliminar.
+    
+    Returns:
+        array: Datos con columnas eliminadas.
+    """
+    df = pd.DataFrame(X)
+    df = df.drop(columns=columns_to_drop, errors='ignore')
+    return df.values
+
+# Termina
+
+# Crear el transformador
+drop_col = ['atemp', 'registered', 'casual', 'instant']
+
 
 def build_preprocessing_pipeline():
     """
@@ -131,6 +274,7 @@ def build_preprocessing_pipeline():
             ('cat', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'), categorical_features),
             # Codificación one-hot de características agrupadas
             ('bin', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'), binned_features)
+
         ],
         remainder='drop'  # Eliminar cualquier otra columna
     )
@@ -154,9 +298,19 @@ def create_model_pipeline(model, preprocessor):
         ('hour_bins', FunctionTransformer(create_hour_bins, validate=False)),
         # Paso 2: Crear rangos de temperatura
         ('temp_bins', FunctionTransformer(create_temp_bins, validate=False)),
-        # Paso 3: Preprocesamiento (escalado + codificación)
+        # Paso 4: Limpieza y llenado de categóricas
+        ('cat_clean_fill', FunctionTransformer(clean_and_fill_categorical, validate=False)),
+        # Paso 4b: Limpieza avanzada de categóricas con conjunto válido
+        ('cleaner',FunctionTransformer(clean_categorical_with_valid_set(valid_values=cat_valid_values),validate=False)),
+        # Paso 4c: Imputar medianas en numéricas
+        ('impute_median', FunctionTransformer(impute_median, validate=False)),
+        # Paso 4d: Eliminación de outliers
+        ('outlier_removal', FunctionTransformer(remove_outliers,validate=False)),
+        # Paso 4e: Eliminar columnas innecesarias
+        ('drop_columns', FunctionTransformer(drop_columns, validate=False, kw_args={'columns_to_drop': drop_col})),
+        # Paso 5: Preprocesamiento (escalado + codificación)
         ('preprocessor', preprocessor),
-        # Paso 4: Modelo
+        # Paso 6: Modelo
         ('model', model)
     ])
 
