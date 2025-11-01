@@ -253,6 +253,150 @@ def drop_columns(X, columns_to_drop=None):
 drop_col = ['atemp', 'registered', 'casual', 'instant']
 
 
+
+
+
+
+def clean_dataset_comprehensive(df):
+    """
+    Limpieza completa del dataset DESPUÉS de load_data().
+    Aplica todas las funciones de limpieza de forma segura.
+    
+    Args:
+        df (pd.DataFrame): DataFrame ya cargado por load_data()
+    
+    Returns:
+        pd.DataFrame: DataFrame completamente limpio
+    """
+    print("\n" + "="*70)
+    print("COMPREHENSIVE DATASET CLEANING")
+    print("="*70)
+    
+    df_clean = df.copy()
+    initial_shape = df_clean.shape
+    print(f"Input shape: {initial_shape}")
+    
+    # ===================================================================
+    # PASO 1: Limpieza y llenado de categóricas
+    # ===================================================================
+    print("\n🔧 Step 1: Cleaning and filling categorical data...")
+    
+    df_array = clean_and_fill_categorical(df_clean.values)
+    df_clean = pd.DataFrame(df_array, columns=df_clean.columns)
+    print("   ✅ Categorical cleaning completed")
+    
+    # ===================================================================
+    # PASO 2: Limpieza avanzada de categóricas con conjunto válido
+    # ===================================================================
+    print("\n🔧 Step 2: Advanced categorical cleaning with valid sets...")
+    
+    # Definir valores válidos
+    cat_valid_values = {
+        "season": {1.0, 2.0, 3.0, 4.0},
+        "yr": {0.0, 1.0},
+        "mnth": set(float(i) for i in range(1, 13)),
+        "hr": set(float(i) for i in range(0, 24)),
+        "holiday": {0.0, 1.0},
+        "weekday": set(float(i) for i in range(0, 7)),
+        "workingday": {0.0, 1.0},
+        "weathersit": {1.0, 2.0, 3.0, 4.0}
+    }
+    
+    # Aplicar limpieza avanzada
+    cleaner = clean_categorical_with_valid_set(valid_values=cat_valid_values)
+    df_array = cleaner.transform(df_clean.values)
+    
+    # Manejar posible reducción de filas
+    if len(df_array) != len(df_clean):
+        rows_removed = len(df_clean) - len(df_array)
+        print(f"   ⚠️ Rows removed by categorical cleaner: {rows_removed}")
+        df_clean = pd.DataFrame(df_array, columns=df_clean.columns)
+        df_clean = df_clean.reset_index(drop=True)
+    else:
+        df_clean = pd.DataFrame(df_array, columns=df_clean.columns)
+    
+    print("   ✅ Advanced categorical cleaning completed")
+    
+    # ===================================================================
+    # PASO 3: Imputar medianas en numéricas
+    # ===================================================================
+    print("\n🔧 Step 3: Imputing numeric values with median...")
+    
+    df_array = impute_median(df_clean.values)
+    df_clean = pd.DataFrame(df_array, columns=df_clean.columns)
+    print("   ✅ Median imputation completed")
+    
+    # ===================================================================
+    # PASO 4: Eliminación de outliers extremos
+    # ===================================================================
+    print("\n🔧 Step 4: Removing extreme outliers...")
+    
+    pre_outlier_size = len(df_clean)
+    df_array = remove_outliers(df_clean.values, factor=2.5)  # Factor conservador
+    
+    if len(df_array) != len(df_clean):
+        outliers_removed = pre_outlier_size - len(df_array)
+        print(f"   ⚠️ Outlier rows removed: {outliers_removed} ({outliers_removed/pre_outlier_size*100:.1f}%)")
+        df_clean = pd.DataFrame(df_array, columns=df_clean.columns)
+        df_clean = df_clean.reset_index(drop=True)
+    else:
+        df_clean = pd.DataFrame(df_array, columns=df_clean.columns)
+        print("   ✅ No extreme outliers found")
+    
+    # ===================================================================
+    # PASO 5: Eliminar columnas adicionales (si las hay)
+    # ===================================================================
+    print("\n🔧 Step 5: Final column cleanup...")
+    
+    # Columnas adicionales que podrían quedar
+    additional_drop_cols = ['atemp', 'registered', 'casual', 'instant']
+    existing_drop_cols = [col for col in additional_drop_cols if col in df_clean.columns]
+    
+    if existing_drop_cols:
+        df_array = drop_columns(df_clean.values, columns_to_drop=existing_drop_cols)
+        remaining_cols = [col for col in df_clean.columns if col not in existing_drop_cols]
+        df_clean = pd.DataFrame(df_array, columns=remaining_cols)
+        print(f"   ✅ Additional columns dropped: {existing_drop_cols}")
+    else:
+        print("   ✅ No additional columns to drop")
+    
+    # ===================================================================
+    # RESUMEN FINAL
+    # ===================================================================
+    print("\n" + "="*70)
+    print("CLEANING SUMMARY")
+    print("="*70)
+    print(f"Original shape: {initial_shape}")
+    print(f"Final shape: {df_clean.shape}")
+    print(f"Rows changed: {initial_shape[0] - df_clean.shape[0]}")
+    print(f"Columns changed: {initial_shape[1] - df_clean.shape[1]}")
+    print(f"Final columns: {list(df_clean.columns)}")
+    
+    # Verificación final
+    if df_clean.isnull().sum().any():
+        print("\n⚠️ Warning: Still have missing values!")
+        missing_summary = df_clean.isnull().sum()
+        print(missing_summary[missing_summary > 0])
+    else:
+        print("\n✅ No missing values remaining")
+    
+    # Verificar tipos de datos
+    print(f"\nFinal data types:")
+    for col, dtype in df_clean.dtypes.items():
+        print(f"   {col}: {dtype}")
+    
+    return df_clean
+
+
+
+
+
+
+
+
+
+
+
 def build_preprocessing_pipeline():
     """
     Construir el pipeline de preprocesamiento usando ColumnTransformer.
@@ -298,16 +442,6 @@ def create_model_pipeline(model, preprocessor):
         ('hour_bins', FunctionTransformer(create_hour_bins, validate=False)),
         # Paso 2: Crear rangos de temperatura
         ('temp_bins', FunctionTransformer(create_temp_bins, validate=False)),
-        # Paso 4: Limpieza y llenado de categóricas
-        ('cat_clean_fill', FunctionTransformer(clean_and_fill_categorical, validate=False)),
-        # Paso 4b: Limpieza avanzada de categóricas con conjunto válido
-        ('cleaner',FunctionTransformer(clean_categorical_with_valid_set(valid_values=cat_valid_values),validate=False)),
-        # Paso 4c: Imputar medianas en numéricas
-        ('impute_median', FunctionTransformer(impute_median, validate=False)),
-        # Paso 4d: Eliminación de outliers
-        ('outlier_removal', FunctionTransformer(remove_outliers,validate=False)),
-        # Paso 4e: Eliminar columnas innecesarias
-        ('drop_columns', FunctionTransformer(drop_columns, validate=False, kw_args={'columns_to_drop': drop_col})),
         # Paso 5: Preprocesamiento (escalado + codificación)
         ('preprocessor', preprocessor),
         # Paso 6: Modelo
@@ -822,6 +956,8 @@ def main():
 
     # Cargar datos
     df = load_data(data_path)
+
+    df = clean_dataset_comprehensive(df)
 
     # Dividir datos (sin preprocesamiento aún - ¡eso está en el pipeline!)
     X = df.drop(columns=['cnt'])
