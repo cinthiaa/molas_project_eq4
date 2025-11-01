@@ -2,74 +2,146 @@
 Esqueleto OOP para pipeline de Bike Sharing (sólo estructura, sin implementación de métodos).
 Clases incluidas: DataLoader, Preprocessor, Model, Evaluator, Visualizer, Orchestrator.
 """
-import pandas as pd
+import time
 import numpy as np
-from pathlib import Path
+import pandas as pd
 
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-class Model:
-    """Representa un modelo individual con su configuración y procesos.
 
-    Atributos:
-    name: Nombre del modelo (p.ej. "RandomForest", "Ridge").
-    estimator: Instancia del estimador sklearn.
-    param_grid: Grid de hiperparámetros para búsqueda (dict).
-    pipeline: Pipeline con preprocesamiento + modelo.
-    best_estimator_: Mejor estimador tras la búsqueda.
-    best_params_: Mejores hiperparámetros encontrados.
-    training_time_: Tiempo de entrenamiento (segundos).
-    metrics_: Métricas calculadas tras la evaluación.
+class Model:
+    """
+    Encapsula: construcción de pipeline (preprocessor -> model) y entrenamiento con GridSearchCV.
+    Equivale a: create_model_pipeline + (parte de) train_and_evaluate_model (entrenar y seleccionar mejor pipeline).
     """
 
-    def __init__(self, name, estimator, param_grid=None):
+    def __init__(self, name, estimator, param_grid, preprocessor, description=""):
         self.name = name
         self.estimator = estimator
-        self.param_grid = param_grid or {}
+        self.param_grid = param_grid
+        self.preprocessor = preprocessor
+        self.description = description
+
         self.pipeline = None
+        self.grid_search_ = None
         self.best_estimator_ = None
         self.best_params_ = None
-        self.training_time_ = None
-        self.metrics_ = None
+        self.cv_best_rmse_ = None
+        self.cv_std_rmse_ = None
+        self.train_time_seconds_ = None
 
-    def build_pipeline(self, preprocessor):
-        """Crea y retorna un pipeline con (preprocessor -> model)."""
-        
+    def build_pipeline(self):
+        """Crea: preprocessor -> model"""
+        self.pipeline = Pipeline([
+            ("preprocessor", self.preprocessor),
+            ("model", self.estimator),
+        ])
+        return self.pipeline
 
-    def train(self, X_train, y_train, cv=5, scoring="neg_root_mean_squared_error", n_jobs=None, verbose=0):
-        """Ejecuta la búsqueda de hiperparámetros/ajuste del pipeline.
+    def fit(self, X_train, y_train, cv=5, scoring="neg_root_mean_squared_error", n_jobs=-1, verbose=1):
+        """Entrena con GridSearchCV y guarda el mejor pipeline/params/métricas de CV y tiempo de entrenamiento."""
+        if self.pipeline is None:
+            self.build_pipeline()
 
-        Returns:
-        dict con llaves como best_estimator_, best_params_, training_time_.
-        """
-        
+        self.grid_search = GridSearchCV(
+            self.pipeline,
+            self.param_grid,
+            cv=cv,
+            scoring=scoring,
+            n_jobs=n_jobs,
+            verbose=verbose
+        )
 
-    def evaluate(self, X_train, y_train, X_test, y_test):
-        """Calcula métricas (RMSE, MAE, R2, MAPE) en train y test.
+        t0 = time.time()
+        self.grid_search.fit(X_train, y_train)
+        self.train_time_seconds_ = time.time() - t0
 
-        Returns:
-        dict con métricas por split.
-        """
-        
+        self.best_estimator_ = self.grid_search.best_estimator_
+        self.best_params_ = self.grid_search.best_params_
+        # Recordar: scoring es negativo para RMSE
+        self.cv_best_rmse_ = -self.grid_search.best_score_
+        self.cv_std_rmse_ = self.grid_search.cv_results_['std_test_score'][self.grid_search.best_index_]
+        return self
 
     def predict(self, X):
-        """Genera predicciones con el mejor modelo entrenado."""
+        """Predice con el mejor pipeline."""
+        if self.best_estimator_ is None:
+            raise RuntimeError("El modelo no ha sido entrenado. Llama a fit() primero.")
+        return self.best_estimator_.predict(X)
     
-
-    def summary(self):
-        """Devuelve un resumen del modelo: nombre, mejores params y métricas."""
-    
+    def get_best_params(self):
+        """
+        Retorna los mejores hiperparámetros encontrados tras el entrenamiento.
+        Returns:
+            dict: Diccionario con los mejores hiperparámetros.
+        """
+        if self.best_params_ is None:
+            raise RuntimeError("El modelo aún no ha sido entrenado o no se encontraron mejores parámetros.")
+        return self.best_params_
 
 
 class Evaluator:
-    """Agrega y compara resultados de múltiples modelos."""
+    """
+    Encapsula: evaluación de métricas y tiempos de inferencia.
+    Equivale a: (parte de) train_and_evaluate_model (métricas + timing).
+    """
 
-    results_: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    def _mape(y_true, y_pred, eps=1e-8):
+        y_true = np.asarray(y_true, dtype=float)
+        y_pred = np.asarray(y_pred, dtype=float)
+        denom = np.maximum(np.abs(y_true), eps)
+        return np.mean(np.abs((y_true - y_pred) / denom)) * 100.0
 
-    def compare(self, models: List[Model]) -> pd.DataFrame:
-        """Construye una tabla con métricas/tiempos por modelo."""
-        pass
+    def evaluate(self, model: Model, X_train, y_train, X_test, y_test):
+        """
+        Calcula métricas de train/test y tiempo de inferencia por muestra.
+        Requiere: model.fit(...) ya ejecutado.
+        """
+        if model.best_estimator_ is None:
+            raise RuntimeError("El modelo no ha sido entrenado. Llama a model.fit() primero.")
+
+        # Predicciones
+        t0 = time.time()
+        y_train_pred = model.best_estimator_.predict(X_train)
+        y_test_pred = model.best_estimator_.predict(X_test)
+        infer_time_ms_per_sample = (time.time() - t0) / max(len(X_test), 1) * 1000.0
+
+        # Métricas
+        metrics = {
+            "train": {
+                "rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
+                "mae": mean_absolute_error(y_train, y_train_pred),
+                "r2": r2_score(y_train, y_train_pred),
+                "mape": self._mape(np.asarray(y_train), y_train_pred),
+            },
+            "test": {
+                "rmse": np.sqrt(mean_squared_error(y_test, y_test_pred)),
+                "mae": mean_absolute_error(y_test, y_test_pred),
+                "r2": r2_score(y_test, y_test_pred),
+                "mape": self._mape(np.asarray(y_test), y_test_pred),
+            },
+            "cv": {
+                "mean_rmse": model.cv_best_rmse_,
+                "std_rmse": model.cv_std_rmse_,
+            },
+            "timing": {
+                "train_time_seconds": model.train_time_seconds_,
+                "inference_time_ms": infer_time_ms_per_sample,
+            },
+            "best_params": model.best_params_,
+            "description": model.description,
+            "model_name": model.name,
+        }
+
+        return {
+            "pipeline": model.best_estimator_,
+            "metrics": metrics,
+            "predictions": {
+                "y_train": y_train,
+                "y_train_pred": y_train_pred,
+                "y_test": y_test,
+                "y_test_pred": y_test_pred,
+            },
+        }
