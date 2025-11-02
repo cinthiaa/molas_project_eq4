@@ -35,7 +35,7 @@ class Model:
     def build_pipeline(self):
         """Crea: preprocessor -> model"""
         self.pipeline = Pipeline([
-            ("preprocessor", self.preprocessor)
+            ("preprocessor", self.preprocessor),
             ("model", self.estimator),
         ])
         return self.pipeline
@@ -44,6 +44,9 @@ class Model:
         """Entrena con GridSearchCV y guarda el mejor pipeline/params/métricas de CV y tiempo de entrenamiento."""
         if self.pipeline is None:
             self.build_pipeline()
+
+        print("PIPELINE")
+        print(self.pipeline)
 
         self.grid_search = GridSearchCV(
             self.pipeline,

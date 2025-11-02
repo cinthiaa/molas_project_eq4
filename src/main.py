@@ -51,8 +51,8 @@ MODEL_CONFIGS = {
 class Orchestrator:
     """
     Etapas:
-    - data: limpia y separa en train/test; construye el preprocessor pero NO lo aplica
-    - train: entrena modelos (usa cleaned_train_csv + preprocessor)
+    - data: limpia y separa en train/test (NO construye ni aplica preprocessor)
+    - train: construye preprocessor (num_cols + cat_cols) y entrena modelos
     - evaluate: evalúa modelos (usa cleaned_test_csv)
     - visualize: grafica/reporta métricas
     """
@@ -66,6 +66,9 @@ class Orchestrator:
         reports_dir: str = "reports",
         random_state: int = 42,
         test_size: float = 0.2,
+        # NUEVO: columnas por parámetro (con defaults constantes)
+        num_cols: list[str] | None = None,
+        cat_cols: list[str] | None = None,
     ):
         self.cleaned_train_csv = cleaned_train_csv
         self.cleaned_test_csv = cleaned_test_csv
@@ -75,8 +78,9 @@ class Orchestrator:
         self.random_state = random_state
         self.test_size = test_size
 
-        # se inicializa en stage_data
-        self.preprocessor = None
+        # Defaults de columnas (constantes) si no vienen por parámetro
+        self.num_cols = num_cols or ['temp', 'hum', 'windspeed']
+        self.cat_cols = cat_cols or ['season', 'yr', 'mnth', 'hr', 'weathersit', 'weekday', 'holiday', 'workingday']
 
         os.makedirs(os.path.dirname(self.cleaned_train_csv), exist_ok=True)
         os.makedirs(os.path.dirname(self.cleaned_test_csv), exist_ok=True)
@@ -84,122 +88,112 @@ class Orchestrator:
         os.makedirs(self.metrics_dir, exist_ok=True)
         os.makedirs(self.reports_dir, exist_ok=True)
 
-
     # -----------------------
     # Etapa: DATA
     # -----------------------
-    def stage_data(self, csv_path: str, target: str | None = None) -> str:
+    def stage_data(self, csv_path: str, target: str | None = None):
         """
-        Carga, limpia, transforma y guarda un CSV procesado.
-        Usa DataLoader y DataProcessor.
+        Limpia y separa en train/test. NO construye ni aplica preprocessor.
+        Usa DataLoader.
         """
-
         columns_to_drop = [
-        'instant',      # Solo un índice
-        'dteday',       # Cadena de fecha (ya tenemos yr, mnth, hr)
-        'casual',       # Fuga de datos (parte del objetivo)
-        'registered',   # Fuga de datos (parte del objetivo)
-        'atemp',        # Alta correlación con temp (0.97)
-        'mixed_type_col'  # No útil para predicción
-    ]
-        num_cols= ['temp', 'hum', 'windspeed']
-        cat_cols = ['season','yr','mnth','hr', 'weathersit', 'weekday', 'holiday', 'workingday']
+            'instant',       # índice
+            'dteday',        # string de fecha (existen yr, mnth, hr)
+            'casual',        # fuga de datos
+            'registered',    # fuga de datos
+            'atemp',         # alta colinealidad con temp
+            'mixed_type_col' # no útil
+        ]
 
-        # 1) Carga
-        dl = DataLoader(csv_path, num_cols=num_cols, target_col=target, drop_cols=columns_to_drop)
-        
+        # 1) Carga y limpieza
+        dl = DataLoader(csv_path, num_cols=self.num_cols, target_col=target, drop_cols=columns_to_drop)
         df = dl.load()
         df = dl.clean_dataset(df)
 
-        # Separar X/y (si DataLoader brinda método). Si no, lo hacemos aquí.
-        X_train, X_test, y_train, y_test = dl.split(df,test_size=self.test_size)
+        # 2) Split (NO construye preprocessor)
+        X_train, X_test, y_train, y_test = dl.split(df, test_size=self.test_size, random_state=self.random_state)
 
-        dp = DataProcessor(numerical_var_cols=num_cols, categorical_var_cols=cat_cols)
-        preprocessor = dp.build()
-        # X_proc = dp.transform(X_train)
+        if target is None:
+            target = dl.target_col  # por si DataLoader lo resolvió
 
-        # Recombinar y guardar
+        # 3) Guardar CSVs limpios (train/test) con target
         df_train = pd.DataFrame(X_train, index=X_train.index)
         df_train[target] = y_train.values
         df_train.to_csv(self.cleaned_train_csv, index=False)
 
-        df_test = pd.DataFrame(X_test, index=X_test.index)
+        df_test = pd.DataFrame(X_test, index=X_test.index)  # ojo: index correcto
         df_test[target] = y_test.values
         df_test.to_csv(self.cleaned_test_csv, index=False)
 
-        return self.cleaned_train_csv,self.cleaned_test_csv, preprocessor
+        return self.cleaned_train_csv, self.cleaned_test_csv
 
     # -----------------------
     # Etapa: TRAIN
     # -----------------------
-    def stage_train(self, processed_csv: str | None, target: str | None, preprocessor) -> list[str]:
+    def stage_train(self, cleaned_train_csv: str | None, target: str | None) -> list[str]:
         """
-        Entrena los modelos definidos en MODEL_CONFIGS usando un CSV ya procesado
-        que corresponde a X_train e incluye la columna objetivo. Guarda cada modelo
-        como PKL y un JSON con metadatos de entrenamiento.
+        Construye el preprocessor con (num_cols + cat_cols) y entrena modelos
+        sobre cleaned_train_csv (X_train + target). Guarda PKL y metadatos JSON.
         """
-        # 1) Cargar datos de entrenamiento ya procesados (X_train + target)
-        csv_path = processed_csv or self.processed_csv
+        csv_path = cleaned_train_csv or self.cleaned_train_csv
         if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"Processed CSV no encontrado: {csv_path}")
+            raise FileNotFoundError(f"CSV de entrenamiento no encontrado: {csv_path}")
 
         df = pd.read_csv(csv_path)
 
-        y = df[target]
+        if target is None:
+            target = "target" if "target" in df.columns else df.columns[-1]
+        if target not in df.columns:
+            raise KeyError(f"Target '{target}' no existe en {csv_path}. Columnas: {list(df.columns)}")
+
+        y = pd.to_numeric(df[target], errors="coerce")
         X = df.drop(columns=[target])
 
-        y_num = pd.to_numeric(y, errors="coerce")
-
-        # 1) Filtrar filas con y NaN
-        if y_num.isna().any():
-            n = int(y_num.isna().sum())
+        # Filtrar filas con y inválido
+        if y.isna().any():
+            n = int(y.isna().sum())
             print(f"[TRAIN] Aviso: {n} filas con {target} no numérico/NaN. Se eliminarán para entrenar.")
-            mask = y_num.notna()
+            mask = y.notna()
             X = X.loc[mask].copy()
-            y_num = y_num.loc[mask].copy()
+            y = y.loc[mask].copy()
 
-        # 3) Alinear índices (por seguridad)
-        X, y_num = X.align(y_num, join="inner", axis=0)
+        # Alinear y tipo
+        X, y = X.align(y, join="inner", axis=0)
+        y = y.astype("float64")
 
-        # 4) Asegurar tipo float para regresión
-        y = y_num.astype("float64")
-        # 3) Asegurar directorio de salida
+        # Construir preprocessor AQUÍ (usando num_cols + cat_cols)
+        dp = DataProcessor(numerical_var_cols=self.num_cols, categorical_var_cols=self.cat_cols)
+        preprocessor = dp.build()
+        print(f"TRAIN PREPROCESSOR:{preprocessor}")
+
         os.makedirs(self.models_dir, exist_ok=True)
 
-        # 4) Entrenar por cada configuración en MODEL_CONFIGS
         saved_models: list[str] = []
         for key, cfg in MODEL_CONFIGS.items():
-            # Config requerida: name, estimator, param_grid, preprocessor, (opcional) description
             name = cfg.get("name", key)
-            estimator = cfg["estimator"]            # instancia de estimador (p. ej. Ridge())
-            param_grid = cfg.get("param_grid", {})  # dict con claves tipo "model__alpha"
+            estimator = cfg["estimator"]
+            param_grid = cfg.get("params", {})  # usa tu clave "params"
             description = cfg.get("description", "")
 
-            # Instanciar tu clase Model
             mdl = Model(
                 name=name,
                 estimator=estimator,
                 param_grid=param_grid,
+                preprocessor=preprocessor,
                 description=description,
-                preprocessor=preprocessor
             )
-
-            # Construir pipeline y entrenar con GridSearchCV
             mdl.build_pipeline()
-            mdl.fit(X, y)  # usa defaults: cv=5, scoring="neg_root_mean_squared_error", etc.
+            mdl.fit(X, y)
 
-            # Determinar qué guardar: best_estimator_ (pipeline completo) o pipeline base
             model_obj = mdl.best_estimator_ if mdl.best_estimator_ is not None else mdl.pipeline
             if model_obj is None:
-                raise RuntimeError(f"No hay pipeline entrenado para el modelo '{name}'.")
+                raise RuntimeError(f"No hay pipeline entrenado para '{name}'.")
 
-            # Guardar modelo
             out_pkl = os.path.join(self.models_dir, f"{name}.pkl")
             with open(out_pkl, "wb") as f:
                 pickle.dump(model_obj, f)
             saved_models.append(out_pkl)
 
-            # Guardar metadatos de entrenamiento (útil para la etapa de evaluate/visualize)
             meta = {
                 "name": name,
                 "description": description,
@@ -323,20 +317,20 @@ class Orchestrator:
     # -----------------------
     def run(self, stage: str, **kwargs):
         stage = stage.lower()
+
         if stage == "data":
             csv_path = kwargs.get("csv")
             if not csv_path:
                 raise ValueError("--csv es requerido para la etapa 'data'")
             target = kwargs.get("target")
-            train_path, test_path, preprocessor = self.stage_data(csv_path=csv_path, target=target)
+            train_path, test_path = self.stage_data(csv_path=csv_path, target=target)
             print(f"[DATA] Train limpio → {train_path}")
             print(f"[DATA] Test limpio  → {test_path}")
 
         elif stage == "train":
             cleaned_train_csv = kwargs.get("cleaned_train_csv", self.cleaned_train_csv)
             target = kwargs.get("target")
-            preprocessor = self.preprocessor  # requiere que 'data' haya corrido en este proceso
-            paths = self.stage_train(cleaned_train_csv=cleaned_train_csv, target=target, preprocessor=preprocessor)
+            paths = self.stage_train(cleaned_train_csv=cleaned_train_csv, target=target)
             print(f"[TRAIN] Modelos guardados: {paths}")
 
         elif stage == "evaluate":
