@@ -17,11 +17,10 @@ class Model:
     Equivale a: create_model_pipeline + (parte de) train_and_evaluate_model (entrenar y seleccionar mejor pipeline).
     """
 
-    def __init__(self, name, estimator, param_grid, preprocessor, description=""):
+    def __init__(self, name, estimator, param_grid, description=""):
         self.name = name
         self.estimator = estimator
         self.param_grid = param_grid
-        self.preprocessor = preprocessor
         self.description = description
 
         self.pipeline = None
@@ -35,7 +34,6 @@ class Model:
     def build_pipeline(self):
         """Crea: preprocessor -> model"""
         self.pipeline = Pipeline([
-            ("preprocessor", self.preprocessor),
             ("model", self.estimator),
         ])
         return self.pipeline

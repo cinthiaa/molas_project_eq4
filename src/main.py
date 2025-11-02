@@ -129,68 +129,87 @@ class Orchestrator:
     # -----------------------
     def stage_train(self, processed_csv: str | None, target: str | None = None) -> list[str]:
         """
-        Entrena 3 modelos a partir de MODEL_CONFIGS y guarda cada .pkl
-        Usa la clase Model.
+        Entrena los modelos definidos en MODEL_CONFIGS usando un CSV ya procesado
+        que corresponde a X_train e incluye la columna objetivo. Guarda cada modelo
+        como PKL y un JSON con metadatos de entrenamiento.
         """
+        # 1) Cargar datos de entrenamiento ya procesados (X_train + target)
         csv_path = processed_csv or self.processed_csv
-        df = pd.read_csv(csv_path)
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"Processed CSV no encontrado: {csv_path}")
 
-        if target is None:
-            target = "target" if "target" in df.columns else df.columns[-1]
+        df = pd.read_csv(csv_path)
 
         y = df[target]
         X = df.drop(columns=[target])
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=self.test_size, random_state=self.random_state
-        )
+        y_num = pd.to_numeric(y, errors="coerce")
 
-        saved_models = []
+        # 1) Filtrar filas con y NaN
+        if y_num.isna().any():
+            n = int(y_num.isna().sum())
+            print(f"[TRAIN] Aviso: {n} filas con {target} no numérico/NaN. Se eliminarán para entrenar.")
+            mask = y_num.notna()
+            X = X.loc[mask].copy()
+            y_num = y_num.loc[mask].copy()
 
-        for name, cfg in MODEL_CONFIGS.items():
-            est_cls = cfg["estimator"]
-            params = cfg.get("params", {})
+        # 3) Alinear índices (por seguridad)
+        X, y_num = X.align(y_num, join="inner", axis=0)
 
-            # Inicializamos nuestra clase Model (tu implementación)
-            mdl = Model(estimator=est_cls, params=params)
+        # 4) Asegurar tipo float para regresión
+        y = y_num.astype("float64")
+        # 3) Asegurar directorio de salida
+        os.makedirs(self.models_dir, exist_ok=True)
 
-            # Intentar fit con API flexible
-            fitted = False
-            for fit_sig in (
-                lambda: mdl.fit(X_train, y_train),
-                lambda: mdl.train(X_train, y_train),
-            ):
-                try:
-                    fit_sig()
-                    fitted = True
-                    break
-                except Exception:
-                    continue
-            if not fitted:
-                # último recurso: instanciar sklearn directamente
-                est = est_cls(**params)
-                est.fit(X_train, y_train)
-                mdl = est  # guardamos el estimador puro
+        # 4) Entrenar por cada configuración en MODEL_CONFIGS
+        saved_models: list[str] = []
+        for key, cfg in MODEL_CONFIGS.items():
+            # Config requerida: name, estimator, param_grid, preprocessor, (opcional) description
+            name = cfg.get("name", key)
+            estimator = cfg["estimator"]            # instancia de estimador (p. ej. Ridge())
+            param_grid = cfg.get("param_grid", {})  # dict con claves tipo "model__alpha"
+            description = cfg.get("description", "")
 
-            # Recuperar best_estimator_ si existe
-            best = getattr(mdl, "best_estimator_", None)
-            model_to_save = best if best is not None else mdl
-
-            out_path = os.path.join(self.models_dir, f"{name}.pkl")
-            with open(out_path, "wb") as f:
-                pickle.dump(model_to_save, f)
-            saved_models.append(out_path)
-
-            # Guardar también un pequeño “artifact” de split para evaluación
-            # (permite que evaluate use el mismo split)
-            split_path = os.path.join(self.models_dir, f"{name}__split.npz")
-            np.savez_compressed(
-                split_path,
-                X_test=X_test.to_numpy(),
-                y_test=y_test.to_numpy(),
-                columns=X_test.columns.to_numpy(),
-                target=np.array([target]),
+            # Instanciar tu clase Model
+            mdl = Model(
+                name=name,
+                estimator=estimator,
+                param_grid=param_grid,
+                description=description,
             )
+
+            # Construir pipeline y entrenar con GridSearchCV
+            mdl.build_pipeline()
+            mdl.fit(X, y)  # usa defaults: cv=5, scoring="neg_root_mean_squared_error", etc.
+
+            # Determinar qué guardar: best_estimator_ (pipeline completo) o pipeline base
+            model_obj = mdl.best_estimator_ if mdl.best_estimator_ is not None else mdl.pipeline
+            if model_obj is None:
+                raise RuntimeError(f"No hay pipeline entrenado para el modelo '{name}'.")
+
+            # Guardar modelo
+            out_pkl = os.path.join(self.models_dir, f"{name}.pkl")
+            with open(out_pkl, "wb") as f:
+                pickle.dump(model_obj, f)
+            saved_models.append(out_pkl)
+
+            # Guardar metadatos de entrenamiento (útil para la etapa de evaluate/visualize)
+            meta = {
+                "name": name,
+                "description": description,
+                "best_params": mdl.best_params_,
+                "cv_best_rmse": mdl.cv_best_rmse_,
+                "cv_std_rmse": mdl.cv_std_rmse_,
+                "train_time_seconds": mdl.train_time_seconds_,
+                "target_column": target,
+                "features": list(X.columns),
+                "source_csv": os.path.abspath(csv_path),
+            }
+            out_meta = os.path.join(self.models_dir, f"{name}.train_metadata.json")
+            with open(out_meta, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2, ensure_ascii=False)
+
+            print(f"[TRAIN] {name}: modelo → {out_pkl} | meta → {out_meta}")
 
         return saved_models
 

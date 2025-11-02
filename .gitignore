@@ -92,3 +92,4 @@ target/
 # Large model files (>100MB)
 models/random_forest_model.pkl
 models/random_forest_pipeline.pkl
+models/*.pkl
