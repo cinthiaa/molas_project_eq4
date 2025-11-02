@@ -55,3 +55,22 @@ Project Organization
 --------
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
+
+HOW TO RUN EACH STAGE:
+--DATA: input modified csv, output processed and cleand csv, will run relative to main.py position
+python main.py --stage=data --csv ../data/raw/bike_sharing_modified.csv --target cnt --processed_csv ../data/processed/bike_sharing_processed.csv
+
+Argumento	Requerido	Descripción
+--stage	Sí	Define la etapa del pipeline a ejecutar. Las opciones válidas son:
+data: procesa los datos y genera un CSV limpio.
+train: entrena los modelos definidos en MODEL_CONFIGS.
+evaluate: evalúa los modelos entrenados y genera métricas.
+visualize: genera gráficas y reportes de desempeño.
+--csv	Sí (solo para --stage=data)	Ruta al archivo CSV original que se procesará.
+--processed_csv	No	Ruta del archivo CSV procesado (por defecto: data/processed/processed.csv). Usado por las etapas train y evaluate.
+--models_dir	No	Directorio donde se guardan o cargan los modelos entrenados (por defecto: models/).
+--metrics_dir	No	Directorio donde se guardan o leen las métricas de evaluación en formato JSON (por defecto: metrics/).
+--reports_dir	No	Directorio donde se generan los gráficos y reportes de desempeño (por defecto: reports/).
+--target	No	Nombre de la variable objetivo (columna dependiente). Si no se especifica, se usa la última columna del dataset o una llamada target.
+--test_size	No	Proporción de datos destinados al conjunto de prueba. Valor por defecto: 0.2.
+--random_state	No	Semilla aleatoria para asegurar reproducibilidad. Valor por defecto: 42.
