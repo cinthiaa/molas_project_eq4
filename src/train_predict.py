@@ -87,64 +87,52 @@ class Model:
 
 class Evaluator:
     """
-    Encapsula: evaluación de métricas y tiempos de inferencia.
-    Equivale a: (parte de) train_and_evaluate_model (métricas + timing).
+    Evalúa métricas sobre el conjunto de prueba y mide tiempo de inferencia.
+    Soporta:
+      - Tu clase Model (con atributo .best_estimator_)
+      - Pipelines/estimadores de sklearn ya entrenados (con .predict)
+    Solo requiere X_test e y_test.
     """
-
-    def _mape(y_true, y_pred, eps=1e-8):
-        y_true = np.asarray(y_true, dtype=float)
-        y_pred = np.asarray(y_pred, dtype=float)
-        denom = np.maximum(np.abs(y_true), eps)
-        return np.mean(np.abs((y_true - y_pred) / denom)) * 100.0
-
-    def evaluate(self, model: Model, X_train, y_train, X_test, y_test):
+    def evaluate(self, model_or_pipeline, X_test, y_test):
         """
-        Calcula métricas de train/test y tiempo de inferencia por muestra.
-        Requiere: model.fit(...) ya ejecutado.
+        Calcula métricas de prueba y tiempo de inferencia por muestra.
+        Args:
+            model_or_pipeline: Model (con .best_estimator_) o estimador/pipeline sklearn ya entrenado.
+            X_test (pd.DataFrame or np.ndarray)
+            y_test (pd.Series or np.ndarray)
+        Returns:
+            dict: {"metrics": {...}, "predictions": {"y_test_pred": ...}}
         """
-        if model.best_estimator_ is None:
-            raise RuntimeError("El modelo no ha sido entrenado. Llama a model.fit() primero.")
+        # Resolver objeto predictor (best_estimator_ si existe; si no, el propio objeto)
+        predictor = getattr(model_or_pipeline, "best_estimator_", None)
+        if predictor is None:
+            predictor = model_or_pipeline
 
-        # Predicciones
+        # Predicción + tiempo por muestra
         t0 = time.time()
-        y_train_pred = model.best_estimator_.predict(X_train)
-        y_test_pred = model.best_estimator_.predict(X_test)
+        y_pred = predictor.predict(X_test)
         infer_time_ms_per_sample = (time.time() - t0) / max(len(X_test), 1) * 1000.0
 
-        # Métricas
+        # Métricas (RMSE = sqrt(MSE) para compatibilidad)
+        mse = mean_squared_error(y_test, y_pred)
+        rmse = float(np.sqrt(mse))
+        mae  = float(mean_absolute_error(y_test, y_pred))
+        r2   = float(r2_score(y_test, y_pred))
+
         metrics = {
-            "train": {
-                "rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
-                "mae": mean_absolute_error(y_train, y_train_pred),
-                "r2": r2_score(y_train, y_train_pred),
-                "mape": self._mape(np.asarray(y_train), y_train_pred),
-            },
             "test": {
-                "rmse": np.sqrt(mean_squared_error(y_test, y_test_pred)),
-                "mae": mean_absolute_error(y_test, y_test_pred),
-                "r2": r2_score(y_test, y_test_pred),
-                "mape": self._mape(np.asarray(y_test), y_test_pred),
-            },
-            "cv": {
-                "mean_rmse": model.cv_best_rmse_,
-                "std_rmse": model.cv_std_rmse_,
+                "rmse": rmse,
+                "mae": mae,
+                "r2": r2
             },
             "timing": {
-                "train_time_seconds": model.train_time_seconds_,
-                "inference_time_ms": infer_time_ms_per_sample,
+                "inference_time_ms_per_sample": float(infer_time_ms_per_sample),
             },
-            "best_params": model.best_params_,
-            "description": model.description,
-            "model_name": model.name,
         }
 
         return {
-            "pipeline": model.best_estimator_,
             "metrics": metrics,
             "predictions": {
-                "y_train": y_train,
-                "y_train_pred": y_train_pred,
-                "y_test": y_test,
-                "y_test_pred": y_test_pred,
+                "y_test_pred": np.asarray(y_pred).tolist(),
             },
         }

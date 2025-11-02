@@ -251,20 +251,11 @@ class Orchestrator:
             with open(model_path, "rb") as f:
                 model = pickle.load(f)
 
-            y_pred = model.predict(X_test)
-
             metrics = None
-            try:
-                ev = Evaluator()
-                metrics = ev.evaluate(model, X_test, y_test)
-            except Exception:
-                metrics = {
-                    "r2": float(r2_score(y_test, y_pred)),
-                    "mae": float(mean_absolute_error(y_test, y_pred)),
-                    "rmse": float(mean_squared_error(y_test, y_pred, squared=False)),
-                }
+            ev = Evaluator()
+            metrics = ev.evaluate(model, X_test, y_test)
 
-            out_json = os.path.join(self.metrics_dir, f"{model_name}.json")
+            out_json = os.path.join(self.metrics_dir, f"{model_name}_test_results.json")
             with open(out_json, "w", encoding="utf-8") as f:
                 json.dump(metrics, f, indent=2, ensure_ascii=False)
             json_paths.append(out_json)
