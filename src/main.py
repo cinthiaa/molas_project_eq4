@@ -48,42 +48,42 @@ MODEL_CONFIGS = {
     },
 }
 
-
 class Orchestrator:
     """
-    Orquesta el pipeline por etapas:
-    - data: procesa un CSV y guarda un CSV limpio/procesado
-    - train: entrena modelos definidos en MODEL_CONFIGS y guarda .pkl
-    - evaluate: evalúa modelos y guarda métricas .json
-    - visualize: genera gráficas/reporte a partir de métricas
-
-    Consideraciones:
-    - Se asume problema de regresión por defecto (métricas R2, MAE, RMSE).
-    - El nombre de la columna objetivo se pasa por CLI (--target). Si no se especifica,
-      se intenta usar 'target'; si no existe, se usa la última columna del CSV.
-    - Directorios de salida se crean si no existen.
+    Etapas:
+    - data: limpia y separa en train/test; construye el preprocessor pero NO lo aplica
+    - train: entrena modelos (usa cleaned_train_csv + preprocessor)
+    - evaluate: evalúa modelos (usa cleaned_test_csv)
+    - visualize: grafica/reporta métricas
     """
 
     def __init__(
         self,
-        processed_csv: str = "data/processed/processed.csv",
+        cleaned_train_csv: str = "data/processed/bike_sharing_cleaned_train.csv",
+        cleaned_test_csv: str = "data/processed/bike_sharing_cleaned_test.csv",
         models_dir: str = "models",
         metrics_dir: str = "metrics",
         reports_dir: str = "reports",
         random_state: int = 42,
         test_size: float = 0.2,
     ):
-        self.processed_csv = processed_csv
+        self.cleaned_train_csv = cleaned_train_csv
+        self.cleaned_test_csv = cleaned_test_csv
         self.models_dir = models_dir
         self.metrics_dir = metrics_dir
         self.reports_dir = reports_dir
         self.random_state = random_state
         self.test_size = test_size
 
-        os.makedirs(os.path.dirname(self.processed_csv), exist_ok=True)
+        # se inicializa en stage_data
+        self.preprocessor = None
+
+        os.makedirs(os.path.dirname(self.cleaned_train_csv), exist_ok=True)
+        os.makedirs(os.path.dirname(self.cleaned_test_csv), exist_ok=True)
         os.makedirs(self.models_dir, exist_ok=True)
         os.makedirs(self.metrics_dir, exist_ok=True)
         os.makedirs(self.reports_dir, exist_ok=True)
+
 
     # -----------------------
     # Etapa: DATA
@@ -115,19 +115,24 @@ class Orchestrator:
         X_train, X_test, y_train, y_test = dl.split(df,test_size=self.test_size)
 
         dp = DataProcessor(numerical_var_cols=num_cols, categorical_var_cols=cat_cols)
-        column_trans = dp.build()
-        X_proc = dp.transform(X_train)
+        preprocessor = dp.build()
+        # X_proc = dp.transform(X_train)
 
         # Recombinar y guardar
-        df_proc = pd.DataFrame(X_proc, index=X_train.index)
-        df_proc[target] = y_train.values
-        df_proc.to_csv(self.processed_csv, index=False)
-        return self.processed_csv
+        df_train = pd.DataFrame(X_train, index=X_train.index)
+        df_train[target] = y_train.values
+        df_train.to_csv(self.cleaned_train_csv, index=False)
+
+        df_test = pd.DataFrame(X_test, index=X_test.index)
+        df_test[target] = y_test.values
+        df_test.to_csv(self.cleaned_test_csv, index=False)
+
+        return self.cleaned_train_csv,self.cleaned_test_csv, preprocessor
 
     # -----------------------
     # Etapa: TRAIN
     # -----------------------
-    def stage_train(self, processed_csv: str | None, target: str | None = None) -> list[str]:
+    def stage_train(self, processed_csv: str | None, target: str | None, preprocessor) -> list[str]:
         """
         Entrena los modelos definidos en MODEL_CONFIGS usando un CSV ya procesado
         que corresponde a X_train e incluye la columna objetivo. Guarda cada modelo
@@ -176,6 +181,7 @@ class Orchestrator:
                 estimator=estimator,
                 param_grid=param_grid,
                 description=description,
+                preprocessor=preprocessor
             )
 
             # Construir pipeline y entrenar con GridSearchCV
@@ -216,55 +222,48 @@ class Orchestrator:
     # -----------------------
     # Etapa: EVALUATE
     # -----------------------
-    def stage_evaluate(self, models_dir: str | None = None) -> list[str]:
+    def stage_evaluate(self, models_dir: str | None, cleaned_test_csv: str | None, target: str | None) -> list[str]:
         """
-        Carga cada modelo .pkl, predice sobre el X_test guardado y escribe métricas en .json
-        Usa Evaluator; si no dispone de método esperado, hace fallback con métricas de regresión.
+        Carga cada modelo .pkl, predice sobre cleaned_test_csv y escribe métricas en .json
+        (usa Evaluator si está disponible; si no, fallback con r2/mae/rmse).
         """
         mdir = models_dir or self.models_dir
-        json_paths = []
+        csv_test = cleaned_test_csv or self.cleaned_test_csv
+        if not os.path.exists(csv_test):
+            raise FileNotFoundError(f"CSV de test no encontrado: {csv_test}")
 
+        df_test = pd.read_csv(csv_test)
+        if target is None:
+            target = "target" if "target" in df_test.columns else df_test.columns[-1]
+        if target not in df_test.columns:
+            raise KeyError(f"Target '{target}' no existe en {csv_test}. Columnas: {list(df_test.columns)}")
+
+        y_test = pd.to_numeric(df_test[target], errors="coerce")
+        X_test = df_test.drop(columns=[target])
+
+        # filtrar filas inválidas en y_test
+        mask = y_test.notna() & np.isfinite(y_test.to_numpy())
+        X_test = X_test.loc[mask]
+        y_test = y_test.loc[mask]
+
+        json_paths = []
         for fname in sorted(os.listdir(mdir)):
             if not fname.endswith(".pkl"):
                 continue
 
             model_name = fname[:-4]
             model_path = os.path.join(mdir, fname)
-            split_path = os.path.join(mdir, f"{model_name}__split.npz")
-            if not os.path.exists(split_path):
-                # si no hay split guardado, saltamos (o podríamos re-splittear del CSV)
-                continue
 
             with open(model_path, "rb") as f:
                 model = pickle.load(f)
 
-            split = np.load(split_path, allow_pickle=True)
-            X_test = pd.DataFrame(split["X_test"], columns=split["columns"])
-            y_test = split["y_test"]
-
-            # Predicción
             y_pred = model.predict(X_test)
 
-            # Evaluación con Evaluator si se puede
             metrics = None
             try:
                 ev = Evaluator()
-                # intentos de API común
-                for eval_sig in (
-                    lambda: ev.evaluate(model, X_test, y_test),
-                    lambda: ev.evaluate_predictions(y_test, y_pred),
-                    lambda: ev(y_test, y_pred),
-                ):
-                    try:
-                        metrics = eval_sig()
-                        break
-                    except Exception:
-                        continue
+                metrics = ev.evaluate(model, X_test, y_test)
             except Exception:
-                pass
-
-            # Fallback a métricas de regresión
-            if metrics is None:
                 metrics = {
                     "r2": float(r2_score(y_test, y_pred)),
                     "mae": float(mean_absolute_error(y_test, y_pred)),
@@ -282,13 +281,9 @@ class Orchestrator:
     # Etapa: VISUALIZE
     # -----------------------
     def stage_visualize(self, metrics_dir: str | None = None) -> str:
-        """
-        Lee cada .json de métricas y usa Visualizer para crear gráficas y un resumen.
-        """
         mdir = metrics_dir or self.metrics_dir
         vis = Visualizer()
 
-        # Cargar métricas
         all_metrics = {}
         for fname in sorted(os.listdir(mdir)):
             if not fname.endswith(".json"):
@@ -297,11 +292,8 @@ class Orchestrator:
             with open(os.path.join(mdir, fname), "r", encoding="utf-8") as f:
                 all_metrics[model_name] = json.load(f)
 
-        # Delega en tu Visualizer si expone métodos, si no, crea un reporte básico.
         report_path = os.path.join(self.reports_dir, "performance_report.md")
         made_report = False
-
-        # Intentos de API
         for viz_sig in (
             lambda: vis.plot_metrics(all_metrics, out_dir=self.reports_dir),
             lambda: vis.report(all_metrics, output_dir=self.reports_dir),
@@ -315,7 +307,6 @@ class Orchestrator:
                 continue
 
         if not made_report:
-            # Genera un markdown sencillo
             lines = ["# Performance Report\n"]
             for mname, mets in all_metrics.items():
                 lines.append(f"## {mname}")
@@ -337,18 +328,22 @@ class Orchestrator:
             if not csv_path:
                 raise ValueError("--csv es requerido para la etapa 'data'")
             target = kwargs.get("target")
-            out = self.stage_data(csv_path=csv_path, target=target)
-            print(f"[DATA] CSV procesado → {out}")
+            train_path, test_path, preprocessor = self.stage_data(csv_path=csv_path, target=target)
+            print(f"[DATA] Train limpio → {train_path}")
+            print(f"[DATA] Test limpio  → {test_path}")
 
         elif stage == "train":
-            processed_csv = kwargs.get("processed_csv", self.processed_csv)
+            cleaned_train_csv = kwargs.get("cleaned_train_csv", self.cleaned_train_csv)
             target = kwargs.get("target")
-            paths = self.stage_train(processed_csv=processed_csv, target=target)
+            preprocessor = self.preprocessor  # requiere que 'data' haya corrido en este proceso
+            paths = self.stage_train(cleaned_train_csv=cleaned_train_csv, target=target, preprocessor=preprocessor)
             print(f"[TRAIN] Modelos guardados: {paths}")
 
         elif stage == "evaluate":
             mdir = kwargs.get("models_dir", self.models_dir)
-            paths = self.stage_evaluate(models_dir=mdir)
+            cleaned_test_csv = kwargs.get("cleaned_test_csv", self.cleaned_test_csv)
+            target = kwargs.get("target")
+            paths = self.stage_evaluate(models_dir=mdir, cleaned_test_csv=cleaned_test_csv, target=target)
             print(f"[EVALUATE] Métricas guardadas: {paths}")
 
         elif stage == "visualize":
@@ -365,8 +360,10 @@ def build_argparser():
     p.add_argument("--stage", required=True, choices=["data", "train", "evaluate", "visualize"],
                    help="Etapa a ejecutar")
     p.add_argument("--csv", help="Ruta al CSV original (solo stage=data)")
-    p.add_argument("--processed_csv", default="data/processed/processed.csv",
-                   help="Ruta al CSV procesado (stage=train)")
+    p.add_argument("--cleaned_train_csv", default="data/processed/bike_sharing_cleaned_train.csv",
+                   help="Ruta al CSV limpio de entrenamiento (stage=train)")
+    p.add_argument("--cleaned_test_csv", default="data/processed/bike_sharing_cleaned_test.csv",
+                   help="Ruta al CSV limpio de prueba (stage=evaluate)")
     p.add_argument("--models_dir", default="models", help="Directorio de modelos (stage=evaluate)")
     p.add_argument("--metrics_dir", default="metrics", help="Directorio de métricas (stage=visualize)")
     p.add_argument("--reports_dir", default="reports", help="Directorio de reportes (stage=visualize)")
@@ -379,17 +376,18 @@ def build_argparser():
 if __name__ == "__main__":
     args = build_argparser().parse_args()
     orch = Orchestrator(
-        processed_csv=args.processed_csv,
+        cleaned_train_csv=args.cleaned_train_csv,
+        cleaned_test_csv=args.cleaned_test_csv,
         models_dir=args.models_dir,
         metrics_dir=args.metrics_dir,
         reports_dir=args.reports_dir,
         random_state=args.random_state,
         test_size=args.test_size,
     )
-    # Pasar kwargs relevantes a run según la etapa
     kwargs = {
         "csv": args.csv,
-        "processed_csv": args.processed_csv,
+        "cleaned_train_csv": args.cleaned_train_csv,
+        "cleaned_test_csv": args.cleaned_test_csv,
         "models_dir": args.models_dir,
         "metrics_dir": args.metrics_dir,
         "reports_dir": args.reports_dir,
