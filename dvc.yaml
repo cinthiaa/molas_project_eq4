@@ -28,7 +28,7 @@ stages:
       - data/processed/bike_sharing_cleaned_test.csv
       - models
     metrics:
-      - metrics/eval
+      - metrics/evaluate
 
   visualize:
     cmd: python src/main.py --stage visualize
