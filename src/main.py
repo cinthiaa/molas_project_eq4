@@ -7,6 +7,9 @@ import argparse
 import pickle
 import numpy as np
 import pandas as pd
+import mlflow
+import mlflow.sklearn
+from dotenv import load_dotenv
 
 # Librerías pedidas
 import seaborn as sns  # noqa: F401 (se usa en visualize.py normalmente)
@@ -321,20 +324,89 @@ class Orchestrator:
         elif stage == "train":
             cleaned_train_csv = kwargs.get("cleaned_train_csv", self.cleaned_train_csv)
             target = kwargs.get("target")
-            paths = self.stage_train(cleaned_train_csv=cleaned_train_csv, target=target)
-            print(f"[TRAIN] Modelos guardados: {paths}")
+
+            # MLflow: un run por ETAPA y sub-runs por modelo
+            with mlflow.start_run(run_name="train_stage"):
+                mlflow.log_artifact("requirements.txt") if os.path.exists("requirements.txt") else None
+                mlflow.log_artifact("params.yaml") if os.path.exists("params.yaml") else None
+
+                paths = self.stage_train(cleaned_train_csv=cleaned_train_csv, target=target)
+
+                # Registra cada modelo .pkl y su metadata si existe
+                for pkl_path in paths:
+                    name = os.path.splitext(os.path.basename(pkl_path))[0]
+                    meta_path = os.path.join(self.models_dir, f"{name}.train_metadata.json")
+
+                    with mlflow.start_run(run_name=f"train_{name}", nested=True):
+                        # Subir metadata como artifact
+                        if os.path.exists(meta_path):
+                            mlflow.log_artifact(meta_path, artifact_path=f"{name}")
+
+                            try:
+                                with open(meta_path, "r", encoding="utf-8") as f:
+                                    meta = json.load(f)
+                                # Log params útiles
+                                for k in ("best_params", "cv_best_rmse", "cv_std_rmse", "train_time_seconds", "target_column"):
+                                    if k in meta:
+                                        # best_params es dict
+                                        if k == "best_params" and isinstance(meta[k], dict):
+                                            mlflow.log_params({f"{name}.{kk}": vv for kk, vv in meta[k].items()})
+                                        else:
+                                            mlflow.log_metric(f"{name}.{k}", float(meta[k]) if isinstance(meta[k], (int,float)) else 0.0)
+                            except Exception:
+                                pass
+
+                        # Sube el modelo a MLflow (además del .pkl local)
+                        try:
+                            import pickle
+                            with open(pkl_path, "rb") as f:
+                                mdl = pickle.load(f)
+                            mlflow.sklearn.log_model(
+                                sk_model=mdl,
+                                artifact_path=f"model/{name}",
+                                registered_model_name=f"eq4_{name}"
+                            )
+                        except Exception as e:
+                            print(f"[WARN] No se pudo registrar {name} en MLflow: {e}")
+
+                print(f"[TRAIN] Modelos guardados: {paths}")
+
+                
 
         elif stage == "evaluate":
             mdir = kwargs.get("models_dir", self.models_dir)
             cleaned_test_csv = kwargs.get("cleaned_test_csv", self.cleaned_test_csv)
             target = kwargs.get("target")
-            paths = self.stage_evaluate(models_dir=mdir, cleaned_test_csv=cleaned_test_csv, target=target)
-            print(f"[EVALUATE] Métricas guardadas: {paths}")
+
+            with mlflow.start_run(run_name="evaluate_stage"):
+                json_paths = self.stage_evaluate(models_dir=mdir, cleaned_test_csv=cleaned_test_csv, target=target)
+
+                # Sube métricas por modelo
+                for jpath in json_paths:
+                    name = os.path.basename(jpath).replace("_test_results.json","")
+                    with mlflow.start_run(run_name=f"eval_{name}", nested=True):
+                        mlflow.log_artifact(jpath, artifact_path=f"metrics/{name}")
+                        try:
+                            with open(jpath, "r", encoding="utf-8") as f:
+                                mets = json.load(f)
+                            # Log metrics
+                            for k,v in mets.items():
+                                mlflow.log_metric(k, float(v))
+                        except Exception as e:
+                            print(f"[WARN] No se pudieron loggear métricas de {name}: {e}")
+
+                print(f"[EVALUATE] Métricas guardadas: {json_paths}")
+
 
         elif stage == "visualize":
             mdir = kwargs.get("metrics_dir", self.metrics_dir)
             out = self.stage_visualize(metrics_dir=mdir)
             print(f"[VISUALIZE] Reportes/Gráficas en: {out}")
+            # MLflow: sube reports/figures si existe
+            if os.path.isdir(self.reports_dir):
+                with mlflow.start_run(run_name="visualize_stage"):
+                    mlflow.log_artifacts(self.reports_dir, artifact_path="reports")
+
 
         else:
             raise ValueError(f"Etapa desconocida: {stage}")
@@ -360,6 +432,10 @@ def build_argparser():
 
 if __name__ == "__main__":
     args = build_argparser().parse_args()
+    # --- MLflow setup ---
+    load_dotenv()
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
+    mlflow.set_experiment("bike_sharing_experiments")
     orch = Orchestrator(
         cleaned_train_csv=args.cleaned_train_csv,
         cleaned_test_csv=args.cleaned_test_csv,
