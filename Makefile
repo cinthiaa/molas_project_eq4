@@ -142,3 +142,29 @@ help:
 		printf "\n"; \
 	}' \
 	| more $(shell test $(shell uname) = Darwin && echo '--no-init --raw-control-chars')
+
+mlflow-ui:
+	MLFLOW_BACKEND_STORE_URI=$(MLFLOW_BACKEND_URI) \
+	MLFLOW_DEFAULT_ARTIFACT_ROOT=$(MLFLOW_DEFAULT_ARTIFACT_ROOT) \
+	mlflow server --backend-store-uri $(MLFLOW_BACKEND_URI) \
+	--default-artifact-root $(MLFLOW_DEFAULT_ARTIFACT_ROOT) \
+	--host 0.0.0.0 --port 5000
+
+data:
+	python -m src.main --stage data --csv data/raw/bike_sharing_modified.csv
+
+train:
+	python -m src.main --stage train
+
+evaluate:
+	python -m src.main --stage evaluate
+
+visualize:
+	python -m src.main --stage visualize
+
+pipeline:
+	dvc repro
+
+push:
+	dvc push
+
