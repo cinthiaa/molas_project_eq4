@@ -1,6 +1,6 @@
 stages:
   data:
-    cmd: python src/main.py --stage data --csv data/raw/bike_sharing_modified.csv
+    cmd: python src/main.py --stage data --csv data/raw/bike_sharing_modified.csv --target cnt
     deps:
       - src/main.py
       - src/data.py
