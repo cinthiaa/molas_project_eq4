@@ -6,6 +6,8 @@ import time
 import numpy as np
 import pandas as pd
 
+import os, json
+from pathlib import Path
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
@@ -136,106 +138,49 @@ class Evaluator:
                 "y_test_pred": np.asarray(y_pred).tolist(),
             },
         }
-    
-    def load_metrics_and_create_comparison(self, metrics_dir: str) -> pd.DataFrame:
-        """Load metrics from JSON files and create comparison DataFrame."""
-        import os
-        import json
-        
-        all_metrics = {}
-        for fname in sorted(os.listdir(metrics_dir)):
-            if not fname.endswith(".json"):
-                continue
-                
-            if fname.endswith("_test_results.json"):
-                model_name = fname[:-17]
-            else:
-                model_name = fname[:-5]
-            
-            json_path = os.path.join(metrics_dir, fname)
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                all_metrics[model_name] = data.get("metrics", {})
-        
-        comparison_data = []
-        for model_name, metrics in all_metrics.items():
-            test_metrics = metrics.get("test", {})
-            timing_metrics = metrics.get("timing", {})
-            
-            comparison_data.append({
-                'Model': model_name.replace('_', ' ').title(),
-                'Test RMSE': test_metrics.get('rmse', 0),
-                'Test MAE': test_metrics.get('mae', 0),
-                'Test R2': test_metrics.get('r2', 0),
-                'Test MAPE': test_metrics.get('mape', 0),
-                'CV RMSE': test_metrics.get('rmse', 0),
-                'Train Time (s)': timing_metrics.get('train_time_seconds', 0),
-                'Inference (ms)': timing_metrics.get('inference_time_ms_per_sample', 0),
-                'Overfitting': 0
-            })
-        
-        df_comparison = pd.DataFrame(comparison_data)
-        return df_comparison.sort_values('Test RMSE')
-    
-    def get_best_model_predictions(self, metrics_dir: str, test_csv_path: str, target: str):
-        """Get predictions for the best performing model."""
-        import os
-        import json
-        
-        if not os.path.exists(test_csv_path):
-            return None
-            
-        comparison_df = self.load_metrics_and_create_comparison(metrics_dir)
-        if comparison_df.empty:
-            return None
-            
-        best_model_name = comparison_df.iloc[0]['Model'].lower().replace(' ', '_')
-        
-        json_filename = f"{best_model_name}_test_results.json"
-        json_path = os.path.join(metrics_dir, json_filename)
-        
-        if not os.path.exists(json_path):
-            return None
-            
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            predictions = data.get("predictions", {})
-            y_pred = np.array(predictions.get('y_test_pred', []))
-        
-        df_test = pd.read_csv(test_csv_path)
-        if target not in df_test.columns:
-            return None
-            
-        y_true = df_test[target].values
-        
-        if len(y_true) == len(y_pred) and len(y_pred) > 0:
-            return y_true, y_pred, best_model_name
-        
-        return None
-    
-    def save_comparison_table(self, df_comparison: pd.DataFrame, output_path: str):
-        """Save comparison table to CSV."""
-        df_comparison.to_csv(output_path, index=False)
-    
-    def generate_performance_report(self, df_comparison: pd.DataFrame, report_path: str):
-        """Generate markdown performance report."""
-        lines = ["# Model Performance Report\n"]
-        lines.append(f"Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        
-        best_model = df_comparison.iloc[0]
-        lines.append("## Best Model Summary")
-        lines.append(f"- **Model**: {best_model['Model']}")
-        lines.append(f"- **Test RMSE**: {best_model['Test RMSE']:.2f}")
-        lines.append(f"- **Test MAE**: {best_model['Test MAE']:.2f}")
-        lines.append(f"- **Test R²**: {best_model['Test R2']:.4f}")
-        lines.append(f"- **Inference Time**: {best_model['Inference (ms)']:.4f} ms/sample\n")
-        
-        lines.append("## All Models Comparison")
-        lines.append("| Model | Test RMSE | Test MAE | Test R² | Inference (ms) |")
-        lines.append("|-------|-----------|----------|---------|----------------|")
-        
-        for _, row in df_comparison.iterrows():
-            lines.append(f"| {row['Model']} | {row['Test RMSE']:.2f} | {row['Test MAE']:.2f} | {row['Test R2']:.4f} | {row['Inference (ms)']:.4f} |")
-        
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+
+
+def compute_basic_metrics(y_true, y_pred):
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    import numpy as np
+    mse = mean_squared_error(y_true, y_pred)
+    return {
+        "rmse": float(np.sqrt(mse)),
+        "mae":  float(mean_absolute_error(y_true, y_pred)),
+        "r2":   float(r2_score(y_true, y_pred)),
+    }
+
+def save_train_metrics(model_or_pipeline, X_train, y_train, out_json_path, log_to_mlflow: bool = True):
+    """
+    Genera predicciones en TRAIN y guarda métricas en JSON.
+    out_json_path ejemplo: metrics/train/<model_name>_train_results.json
+    """
+    # Resolver objeto predictor
+    predictor = getattr(model_or_pipeline, "best_estimator_", None)
+    if predictor is None:
+        predictor = model_or_pipeline
+
+    y_pred = predictor.predict(X_train)
+    metrics = compute_basic_metrics(y_train, y_pred)
+
+    # Estructura uniforme
+    payload = {
+        "metrics": {
+            "train": metrics
+        }
+    }
+
+    Path(os.path.dirname(out_json_path)).mkdir(parents=True, exist_ok=True)
+    with open(out_json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    # (Opcional) Log a MLflow
+    if log_to_mlflow:
+        try:
+            import mlflow
+            mlflow.log_metrics({f"train_{k}": v for k, v in metrics.items()})
+            mlflow.log_artifact(out_json_path, artifact_path="metrics/train")
+        except Exception as e:
+            print(f"[WARN] No se pudieron loggear métricas de train en MLflow: {e}")
+
+    return payload

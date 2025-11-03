@@ -10,12 +10,17 @@ import pandas as pd
 import mlflow
 import mlflow.sklearn
 from dotenv import load_dotenv
-from typing import List, Optional, Union
+import pandas as pd
+from train_predict import save_train_metrics  
+
 
 # Librerías pedidas
 import seaborn as sns  # noqa: F401 (se usa en visualize.py normalmente)
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from pathlib import Path
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+import numpy as np
 
 # Importar tus clases
 from data import DataLoader, DataProcessor
@@ -71,8 +76,8 @@ class Orchestrator:
         random_state: int = 42,
         test_size: float = 0.2,
         # NUEVO: columnas por parámetro (con defaults constantes)
-        num_cols: Optional[List[str]] = None,
-        cat_cols: Optional[List[str]] = None,
+        num_cols: list[str] | None = None,
+        cat_cols: list[str] | None = None,
     ):
         self.cleaned_train_csv = cleaned_train_csv
         self.cleaned_test_csv = cleaned_test_csv
@@ -95,7 +100,7 @@ class Orchestrator:
     # -----------------------
     # Etapa: DATA
     # -----------------------
-    def stage_data(self, csv_path: str, target: Optional[str] = None):
+    def stage_data(self, csv_path: str, target: str | None = None):
         """
         Limpia y separa en train/test. NO construye ni aplica preprocessor.
         Usa DataLoader.
@@ -134,7 +139,7 @@ class Orchestrator:
     # -----------------------
     # Etapa: TRAIN
     # -----------------------
-    def stage_train(self, cleaned_train_csv: Optional[str], target: Optional[str]) -> List[str]:
+    def stage_train(self, cleaned_train_csv: str | None, target: str | None) -> list[str]:
         """
         Construye el preprocessor con (num_cols + cat_cols) y entrena modelos
         sobre cleaned_train_csv (X_train + target). Guarda PKL y metadatos JSON.
@@ -220,7 +225,7 @@ class Orchestrator:
     # -----------------------
     # Etapa: EVALUATE
     # -----------------------
-    def stage_evaluate(self, models_dir: Optional[str], cleaned_test_csv: Optional[str], target: Optional[str]) -> List[str]:
+    def stage_evaluate(self, models_dir: str | None, cleaned_test_csv: str | None, target: str | None) -> list[str]:
         """
         Carga cada modelo .pkl, predice sobre cleaned_test_csv y escribe métricas en .json
         (usa Evaluator si está disponible; si no, fallback con r2/mae/rmse).
@@ -269,56 +274,43 @@ class Orchestrator:
     # -----------------------
     # Etapa: VISUALIZE
     # -----------------------
-    def stage_visualize(self, metrics_dir: Optional[str] = None, reports_dir: Optional[str] = None) -> str:
-        """
-        Generate visualizations from evaluation metrics JSON files.
-        
-        Args:
-            metrics_dir: Directory containing model metrics JSON files
-            reports_dir: Directory to save generated plots and reports
-            
-        Returns:
-            Path to reports directory
-        """
+    def stage_visualize(self, metrics_dir: str | None = None) -> str:
         mdir = metrics_dir or self.metrics_dir
-        rdir = reports_dir or self.reports_dir
-        
-        if not os.path.exists(mdir):
-            raise FileNotFoundError(f"Metrics directory not found: {mdir}")
-        
-        # Initialize components - orchestrator only coordinates
-        evaluator = Evaluator()
-        visualizer = Visualizer(output_dir=rdir)
-        
-        # Load metrics using evaluator (delegate responsibility)
-        comparison_df = evaluator.load_metrics_and_create_comparison(mdir)
-        
-        # Generate visualizations using visualizer (delegate responsibility)
-        print("Generating model comparison visualization...")
-        metrics_plot_path = visualizer.plot_metrics(comparison_df)
-        print(f"Model comparison plot saved: {metrics_plot_path}")
-        
-        # Generate predictions plot for best model using evaluator + visualizer
-        best_model_predictions = evaluator.get_best_model_predictions(mdir, self.cleaned_test_csv, getattr(self, 'target', 'cnt'))
-        if best_model_predictions:
-            y_true, y_pred, model_name = best_model_predictions
-            pred_plot_path = visualizer.plot_predictions(
-                y_true, y_pred, 
-                f"Best Model ({model_name.title()}) Predictions"
-            )
-            print(f"Predictions plot saved: {pred_plot_path}")
-        
-        # Save comparison table using evaluator
-        comparison_csv_path = os.path.join(rdir, "model_comparison_results.csv")
-        evaluator.save_comparison_table(comparison_df, comparison_csv_path)
-        print(f"Comparison table saved: {comparison_csv_path}")
-        
-        # Generate report using evaluator
-        report_path = os.path.join(rdir, "performance_report.md")
-        evaluator.generate_performance_report(comparison_df, report_path)
-        print(f"Performance report saved: {report_path}")
-        
-        return rdir
+        vis = Visualizer()
+
+        all_metrics = {}
+        for fname in sorted(os.listdir(mdir)):
+            if not fname.endswith(".json"):
+                continue
+            model_name = fname[:-5]
+            with open(os.path.join(mdir, fname), "r", encoding="utf-8") as f:
+                all_metrics[model_name] = json.load(f)
+
+        report_path = os.path.join(self.reports_dir, "performance_report.md")
+        made_report = False
+        for viz_sig in (
+            lambda: vis.plot_metrics(all_metrics, out_dir=self.reports_dir),
+            lambda: vis.report(all_metrics, output_dir=self.reports_dir),
+            lambda: vis(all_metrics, self.reports_dir),
+        ):
+            try:
+                viz_sig()
+                made_report = True
+                break
+            except Exception:
+                continue
+
+        if not made_report:
+            lines = ["# Performance Report\n"]
+            for mname, mets in all_metrics.items():
+                lines.append(f"## {mname}")
+                for k, v in mets.items():
+                    lines.append(f"- **{k}**: {v}")
+                lines.append("")
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+
+        return self.reports_dir
 
     # -----------------------
     # Ejecutar por etapa
@@ -341,10 +333,29 @@ class Orchestrator:
 
             # MLflow: un run por ETAPA y sub-runs por modelo
             with mlflow.start_run(run_name="train_stage"):
-                mlflow.log_artifact("requirements.txt") if os.path.exists("requirements.txt") else None
-                mlflow.log_artifact("params.yaml") if os.path.exists("params.yaml") else None
+                # artifacts útiles de contexto
+                if os.path.exists("requirements.txt"):
+                    mlflow.log_artifact("requirements.txt")
+                if os.path.exists("params.yaml"):
+                    mlflow.log_artifact("params.yaml")
 
+                # Ejecuta tu etapa de entrenamiento (crea .pkl y metadata por modelo)
                 paths = self.stage_train(cleaned_train_csv=cleaned_train_csv, target=target)
+
+                # Carga datos de TRAIN una sola vez para calcular métricas por modelo
+                import pandas as pd
+                df_tr = pd.read_csv(cleaned_train_csv)
+                y_col = target if target else ("target" if "target" in df_tr.columns else df_tr.columns[-1])
+                y_tr = pd.to_numeric(df_tr[y_col], errors="coerce")
+                X_tr = df_tr.drop(columns=[y_col]).loc[y_tr.notna()]
+                y_tr = y_tr.loc[y_tr.notna()]
+
+                # Importa helper para guardar métricas de train (vive en train_predict.py)
+                try:
+                    from train_predict import save_train_metrics
+                except Exception as _e:
+                    save_train_metrics = None
+                    print("[WARN] No se pudo importar save_train_metrics desde train_predict.py")
 
                 # Registra cada modelo .pkl y su metadata si existe
                 for pkl_path in paths:
@@ -355,18 +366,22 @@ class Orchestrator:
                         # Subir metadata como artifact
                         if os.path.exists(meta_path):
                             mlflow.log_artifact(meta_path, artifact_path=f"{name}")
-
+                            # Leer metadata para loggear params/métricas agregadas de CV
                             try:
                                 with open(meta_path, "r", encoding="utf-8") as f:
                                     meta = json.load(f)
                                 # Log params útiles
                                 for k in ("best_params", "cv_best_rmse", "cv_std_rmse", "train_time_seconds", "target_column"):
                                     if k in meta:
-                                        # best_params es dict
                                         if k == "best_params" and isinstance(meta[k], dict):
                                             mlflow.log_params({f"{name}.{kk}": vv for kk, vv in meta[k].items()})
                                         else:
-                                            mlflow.log_metric(f"{name}.{k}", float(meta[k]) if isinstance(meta[k], (int,float)) else 0.0)
+                                            # Algunos campos pueden no ser numéricos; intentamos si son números
+                                            val = meta[k]
+                                            try:
+                                                mlflow.log_metric(f"{name}.{k}", float(val))
+                                            except Exception:
+                                                mlflow.set_tag(f"{name}.{k}", str(val))
                             except Exception:
                                 pass
 
@@ -383,7 +398,21 @@ class Orchestrator:
                         except Exception as e:
                             print(f"[WARN] No se pudo registrar {name} en MLflow: {e}")
 
+                        # === NUEVO: calcular y guardar métricas de TRAIN por modelo ===
+                        # Se guardan en metrics/train/<modelo>_train_results.json (sin solapar con metrics/eval/)
+                        try:
+                            os.makedirs(os.path.join(self.metrics_dir, "train"), exist_ok=True)
+                            if save_train_metrics is not None:
+                                out_json_train = os.path.join(self.metrics_dir, "train", f"{name}_train_results.json")
+                                # save_train_metrics también loggea a MLflow y sube el JSON como artifact
+                                save_train_metrics(mdl, X_tr, y_tr, out_json_train, log_to_mlflow=True)
+                            else:
+                                print(f"[WARN] No se generaron métricas de TRAIN para {name} (helper no disponible).")
+                        except Exception as e:
+                            print(f"[WARN] Falló guardado de métricas de TRAIN para {name}: {e}")
+
                 print(f"[TRAIN] Modelos guardados: {paths}")
+
 
                 
 
@@ -414,8 +443,7 @@ class Orchestrator:
 
         elif stage == "visualize":
             mdir = kwargs.get("metrics_dir", self.metrics_dir)
-            rdir = kwargs.get("reports_dir", self.reports_dir)
-            out = self.stage_visualize(metrics_dir=mdir, reports_dir=rdir)
+            out = self.stage_visualize(metrics_dir=mdir)
             print(f"[VISUALIZE] Reportes/Gráficas en: {out}")
             # MLflow: sube reports/figures si existe
             if os.path.isdir(self.reports_dir):

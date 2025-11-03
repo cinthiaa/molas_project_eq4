@@ -15,9 +15,10 @@ stages:
       - src/main.py
       - src/train_predict.py
       - data/processed/bike_sharing_cleaned_train.csv
-      - models
     outs:
       - models
+    metrics:
+      - metrics/train   
 
   evaluate:
     cmd: python -m src.main --stage evaluate
@@ -27,7 +28,7 @@ stages:
       - data/processed/bike_sharing_cleaned_test.csv
       - models
     metrics:
-      - metrics
+      - metrics/evaluate
 
   visualize:
     cmd: python -m src.main --stage visualize
