@@ -10,6 +10,7 @@ import pandas as pd
 import mlflow
 import mlflow.sklearn
 from dotenv import load_dotenv
+from typing import List, Optional, Union
 
 # Librerías pedidas
 import seaborn as sns  # noqa: F401 (se usa en visualize.py normalmente)
@@ -70,8 +71,8 @@ class Orchestrator:
         random_state: int = 42,
         test_size: float = 0.2,
         # NUEVO: columnas por parámetro (con defaults constantes)
-        num_cols: list[str] | None = None,
-        cat_cols: list[str] | None = None,
+        num_cols: Optional[List[str]] = None,
+        cat_cols: Optional[List[str]] = None,
     ):
         self.cleaned_train_csv = cleaned_train_csv
         self.cleaned_test_csv = cleaned_test_csv
@@ -94,7 +95,7 @@ class Orchestrator:
     # -----------------------
     # Etapa: DATA
     # -----------------------
-    def stage_data(self, csv_path: str, target: str | None = None):
+    def stage_data(self, csv_path: str, target: Optional[str] = None):
         """
         Limpia y separa en train/test. NO construye ni aplica preprocessor.
         Usa DataLoader.
@@ -133,7 +134,7 @@ class Orchestrator:
     # -----------------------
     # Etapa: TRAIN
     # -----------------------
-    def stage_train(self, cleaned_train_csv: str | None, target: str | None) -> list[str]:
+    def stage_train(self, cleaned_train_csv: Optional[str], target: Optional[str]) -> List[str]:
         """
         Construye el preprocessor con (num_cols + cat_cols) y entrena modelos
         sobre cleaned_train_csv (X_train + target). Guarda PKL y metadatos JSON.
@@ -219,7 +220,7 @@ class Orchestrator:
     # -----------------------
     # Etapa: EVALUATE
     # -----------------------
-    def stage_evaluate(self, models_dir: str | None, cleaned_test_csv: str | None, target: str | None) -> list[str]:
+    def stage_evaluate(self, models_dir: Optional[str], cleaned_test_csv: Optional[str], target: Optional[str]) -> List[str]:
         """
         Carga cada modelo .pkl, predice sobre cleaned_test_csv y escribe métricas en .json
         (usa Evaluator si está disponible; si no, fallback con r2/mae/rmse).
@@ -268,43 +269,56 @@ class Orchestrator:
     # -----------------------
     # Etapa: VISUALIZE
     # -----------------------
-    def stage_visualize(self, metrics_dir: str | None = None) -> str:
+    def stage_visualize(self, metrics_dir: Optional[str] = None, reports_dir: Optional[str] = None) -> str:
+        """
+        Generate visualizations from evaluation metrics JSON files.
+        
+        Args:
+            metrics_dir: Directory containing model metrics JSON files
+            reports_dir: Directory to save generated plots and reports
+            
+        Returns:
+            Path to reports directory
+        """
         mdir = metrics_dir or self.metrics_dir
-        vis = Visualizer()
-
-        all_metrics = {}
-        for fname in sorted(os.listdir(mdir)):
-            if not fname.endswith(".json"):
-                continue
-            model_name = fname[:-5]
-            with open(os.path.join(mdir, fname), "r", encoding="utf-8") as f:
-                all_metrics[model_name] = json.load(f)
-
-        report_path = os.path.join(self.reports_dir, "performance_report.md")
-        made_report = False
-        for viz_sig in (
-            lambda: vis.plot_metrics(all_metrics, out_dir=self.reports_dir),
-            lambda: vis.report(all_metrics, output_dir=self.reports_dir),
-            lambda: vis(all_metrics, self.reports_dir),
-        ):
-            try:
-                viz_sig()
-                made_report = True
-                break
-            except Exception:
-                continue
-
-        if not made_report:
-            lines = ["# Performance Report\n"]
-            for mname, mets in all_metrics.items():
-                lines.append(f"## {mname}")
-                for k, v in mets.items():
-                    lines.append(f"- **{k}**: {v}")
-                lines.append("")
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-
-        return self.reports_dir
+        rdir = reports_dir or self.reports_dir
+        
+        if not os.path.exists(mdir):
+            raise FileNotFoundError(f"Metrics directory not found: {mdir}")
+        
+        # Initialize components - orchestrator only coordinates
+        evaluator = Evaluator()
+        visualizer = Visualizer(output_dir=rdir)
+        
+        # Load metrics using evaluator (delegate responsibility)
+        comparison_df = evaluator.load_metrics_and_create_comparison(mdir)
+        
+        # Generate visualizations using visualizer (delegate responsibility)
+        print("Generating model comparison visualization...")
+        metrics_plot_path = visualizer.plot_metrics(comparison_df)
+        print(f"Model comparison plot saved: {metrics_plot_path}")
+        
+        # Generate predictions plot for best model using evaluator + visualizer
+        best_model_predictions = evaluator.get_best_model_predictions(mdir, self.cleaned_test_csv, getattr(self, 'target', 'cnt'))
+        if best_model_predictions:
+            y_true, y_pred, model_name = best_model_predictions
+            pred_plot_path = visualizer.plot_predictions(
+                y_true, y_pred, 
+                f"Best Model ({model_name.title()}) Predictions"
+            )
+            print(f"Predictions plot saved: {pred_plot_path}")
+        
+        # Save comparison table using evaluator
+        comparison_csv_path = os.path.join(rdir, "model_comparison_results.csv")
+        evaluator.save_comparison_table(comparison_df, comparison_csv_path)
+        print(f"Comparison table saved: {comparison_csv_path}")
+        
+        # Generate report using evaluator
+        report_path = os.path.join(rdir, "performance_report.md")
+        evaluator.generate_performance_report(comparison_df, report_path)
+        print(f"Performance report saved: {report_path}")
+        
+        return rdir
 
     # -----------------------
     # Ejecutar por etapa
@@ -400,7 +414,8 @@ class Orchestrator:
 
         elif stage == "visualize":
             mdir = kwargs.get("metrics_dir", self.metrics_dir)
-            out = self.stage_visualize(metrics_dir=mdir)
+            rdir = kwargs.get("reports_dir", self.reports_dir)
+            out = self.stage_visualize(metrics_dir=mdir, reports_dir=rdir)
             print(f"[VISUALIZE] Reportes/Gráficas en: {out}")
             # MLflow: sube reports/figures si existe
             if os.path.isdir(self.reports_dir):

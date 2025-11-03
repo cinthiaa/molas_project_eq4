@@ -136,3 +136,106 @@ class Evaluator:
                 "y_test_pred": np.asarray(y_pred).tolist(),
             },
         }
+    
+    def load_metrics_and_create_comparison(self, metrics_dir: str) -> pd.DataFrame:
+        """Load metrics from JSON files and create comparison DataFrame."""
+        import os
+        import json
+        
+        all_metrics = {}
+        for fname in sorted(os.listdir(metrics_dir)):
+            if not fname.endswith(".json"):
+                continue
+                
+            if fname.endswith("_test_results.json"):
+                model_name = fname[:-17]
+            else:
+                model_name = fname[:-5]
+            
+            json_path = os.path.join(metrics_dir, fname)
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                all_metrics[model_name] = data.get("metrics", {})
+        
+        comparison_data = []
+        for model_name, metrics in all_metrics.items():
+            test_metrics = metrics.get("test", {})
+            timing_metrics = metrics.get("timing", {})
+            
+            comparison_data.append({
+                'Model': model_name.replace('_', ' ').title(),
+                'Test RMSE': test_metrics.get('rmse', 0),
+                'Test MAE': test_metrics.get('mae', 0),
+                'Test R2': test_metrics.get('r2', 0),
+                'Test MAPE': test_metrics.get('mape', 0),
+                'CV RMSE': test_metrics.get('rmse', 0),
+                'Train Time (s)': timing_metrics.get('train_time_seconds', 0),
+                'Inference (ms)': timing_metrics.get('inference_time_ms_per_sample', 0),
+                'Overfitting': 0
+            })
+        
+        df_comparison = pd.DataFrame(comparison_data)
+        return df_comparison.sort_values('Test RMSE')
+    
+    def get_best_model_predictions(self, metrics_dir: str, test_csv_path: str, target: str):
+        """Get predictions for the best performing model."""
+        import os
+        import json
+        
+        if not os.path.exists(test_csv_path):
+            return None
+            
+        comparison_df = self.load_metrics_and_create_comparison(metrics_dir)
+        if comparison_df.empty:
+            return None
+            
+        best_model_name = comparison_df.iloc[0]['Model'].lower().replace(' ', '_')
+        
+        json_filename = f"{best_model_name}_test_results.json"
+        json_path = os.path.join(metrics_dir, json_filename)
+        
+        if not os.path.exists(json_path):
+            return None
+            
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            predictions = data.get("predictions", {})
+            y_pred = np.array(predictions.get('y_test_pred', []))
+        
+        df_test = pd.read_csv(test_csv_path)
+        if target not in df_test.columns:
+            return None
+            
+        y_true = df_test[target].values
+        
+        if len(y_true) == len(y_pred) and len(y_pred) > 0:
+            return y_true, y_pred, best_model_name
+        
+        return None
+    
+    def save_comparison_table(self, df_comparison: pd.DataFrame, output_path: str):
+        """Save comparison table to CSV."""
+        df_comparison.to_csv(output_path, index=False)
+    
+    def generate_performance_report(self, df_comparison: pd.DataFrame, report_path: str):
+        """Generate markdown performance report."""
+        lines = ["# Model Performance Report\n"]
+        lines.append(f"Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        
+        best_model = df_comparison.iloc[0]
+        lines.append("## Best Model Summary")
+        lines.append(f"- **Model**: {best_model['Model']}")
+        lines.append(f"- **Test RMSE**: {best_model['Test RMSE']:.2f}")
+        lines.append(f"- **Test MAE**: {best_model['Test MAE']:.2f}")
+        lines.append(f"- **Test R²**: {best_model['Test R2']:.4f}")
+        lines.append(f"- **Inference Time**: {best_model['Inference (ms)']:.4f} ms/sample\n")
+        
+        lines.append("## All Models Comparison")
+        lines.append("| Model | Test RMSE | Test MAE | Test R² | Inference (ms) |")
+        lines.append("|-------|-----------|----------|---------|----------------|")
+        
+        for _, row in df_comparison.iterrows():
+            lines.append(f"| {row['Model']} | {row['Test RMSE']:.2f} | {row['Test MAE']:.2f} | {row['Test R2']:.4f} | {row['Inference (ms)']:.4f} |")
+        
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
