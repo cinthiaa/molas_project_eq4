@@ -1,9 +1,11 @@
 [core]
-    remote = s3remote
+    remote = team_remote
+['remote "local_remote"']
+    url = ../mlops_bikesharing_storage
 ['remote "s3remote"']
     url = s3://itesm-mna/202502-equipo4/dvc
     region = us-east-2
-    profile = equipo4
 ['remote "team_remote"']
     url = s3://itesm-mna/202502-equipo4
+    region = us-east-2
     profile = equipo4

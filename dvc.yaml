@@ -7,7 +7,6 @@ stages:
       - data/raw
     outs:
       - data/processed
-      - data/interim
 
   train:
     cmd: python src/main.py --stage train
@@ -28,7 +27,7 @@ stages:
       - data/processed/bike_sharing_cleaned_test.csv
       - models
     metrics:
-      - metrics/evaluate
+      - metrics/eval
 
   visualize:
     cmd: python src/main.py --stage visualize
