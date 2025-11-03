@@ -1,0 +1,39 @@
+cat > dvc.yaml << 'EOF'
+stages:
+  data:
+    cmd: python -m src.main stage_data
+    deps:
+      - src/data.py
+      - data/raw
+    outs:
+      - data/interim
+      - data/processed
+
+  train:
+    cmd: python -m src.main stage_train
+    deps:
+      - src/train_predict.py
+      - data/processed/train.csv
+      - params.yaml
+    outs:
+      - models/model.pkl
+    metrics:
+      - metrics/train_metrics.json
+
+  evaluate:
+    cmd: python -m src.main stage_evaluate
+    deps:
+      - src/train_predict.py
+      - data/processed/test.csv
+      - models/model.pkl
+    metrics:
+      - metrics/test_metrics.json
+
+  visualize:
+    cmd: python -m src.main stage_visualize
+    deps:
+      - src/visualize.py
+      - metrics/test_metrics.json
+    outs:
+      - reports/figures
+EOF
