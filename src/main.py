@@ -275,25 +275,30 @@ class Orchestrator:
     # -----------------------
     def stage_visualize(self, metrics_dir: str | None = None) -> str:
         mdir = metrics_dir or self.metrics_dir
-        vis = Visualizer()
+        os.makedirs(self.reports_dir, exist_ok=True)
 
-        # Cargar métricas de manera recursiva (train y eval)
+        # Pasa output_dir al constructor
+        vis = Visualizer(output_dir=self.reports_dir)
+
+        # Cargar métricas (train + eval) de forma recursiva
         all_metrics = {}
         for root, _, files in os.walk(mdir):
             for fname in files:
                 if not fname.endswith(".json"):
                     continue
-                model_key = os.path.splitext(fname)[0]  # sin .json
                 fpath = os.path.join(root, fname)
+                key = os.path.splitext(fname)[0]
                 with open(fpath, "r", encoding="utf-8") as f:
-                    all_metrics[model_key] = json.load(f)
+                    all_metrics[key] = json.load(f)
 
         report_path = os.path.join(self.reports_dir, "performance_report.md")
         made_report = False
+
+        # ✅ Ya no pases output_dir aquí; el objeto ya lo conoce
         for viz_sig in (
-            lambda: vis.plot_metrics(all_metrics, out_dir=self.reports_dir),
-            lambda: vis.report(all_metrics, output_dir=self.reports_dir),
-            lambda: vis(all_metrics, self.reports_dir),
+            lambda: vis.plot_metrics(all_metrics),
+            lambda: vis.report(all_metrics),
+            lambda: vis(all_metrics),
         ):
             try:
                 viz_sig()
@@ -314,6 +319,7 @@ class Orchestrator:
                 f.write("\n".join(lines))
 
         return self.reports_dir
+
 
     # -----------------------
     # Ejecutar por etapa

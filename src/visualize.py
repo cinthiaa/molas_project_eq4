@@ -28,8 +28,9 @@ class Visualizer:
         Args:
             output_dir: Directory to save generated plots
         """
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
         
         # Set consistent style for all plots
         plt.style.use('default')
