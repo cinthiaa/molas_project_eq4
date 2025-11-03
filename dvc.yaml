@@ -1,6 +1,6 @@
 stages:
   data:
-    cmd: python -m src.main --stage data --csv data/raw/bike_sharing_modified.csv
+    cmd: python src/main.py --stage data --csv data/raw/bike_sharing_modified.csv
     deps:
       - src/main.py
       - src/data.py
@@ -10,7 +10,7 @@ stages:
       - data/interim
 
   train:
-    cmd: python -m src.main --stage train
+    cmd: python src/main.py --stage train
     deps:
       - src/main.py
       - src/train_predict.py
@@ -18,23 +18,24 @@ stages:
     outs:
       - models
     metrics:
-      - metrics/train   
+      - metrics/train
 
   evaluate:
-    cmd: python -m src.main --stage evaluate
+    cmd: python src/main.py --stage evaluate
     deps:
       - src/main.py
       - src/train_predict.py
       - data/processed/bike_sharing_cleaned_test.csv
       - models
     metrics:
-      - metrics/evaluate
+      - metrics/eval
 
   visualize:
-    cmd: python -m src.main --stage visualize
+    cmd: python src/main.py --stage visualize
     deps:
       - src/main.py
       - src/visualize.py
       - metrics
     outs:
       - reports
+

@@ -151,16 +151,17 @@ mlflow-ui:
 	--host 0.0.0.0 --port 5000
 
 data:
-	python -m src.main --stage data --csv data/raw/bike_sharing_modified.csv
+	python src/main.py --stage data --csv data/raw/bike_sharing_modified.csv
 
 train:
-	python -m src.main --stage train
+	python src/main.py --stage train
 
 evaluate:
-	python -m src.main --stage evaluate
+	python src/main.py --stage evaluate
 
 visualize:
-	python -m src.main --stage visualize
+	python src/main.py --stage visualize
+
 
 pipeline:
 	dvc repro
