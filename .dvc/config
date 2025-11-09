@@ -1,4 +1,6 @@
 [core]
-    remote = local_remote
+    remote = storage
 ['remote "local_remote"']
     url = ../mlops_bikesharing_storage
+['remote "storage"']
+    url = s3://itesm-mna/202502-equipo4
