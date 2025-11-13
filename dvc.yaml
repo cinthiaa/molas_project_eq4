@@ -1,0 +1,39 @@
+stages:
+  data:
+    cmd: python -m src.main --stage data --csv data/raw/bike_sharing_modified.csv
+    deps:
+      - src/main.py
+      - src/data.py
+      - data/raw
+    outs:
+      - data/processed
+      - data/interim
+
+  train:
+    cmd: python -m src.main --stage train
+    deps:
+      - src/main.py
+      - src/train_predict.py
+      - data/processed/bike_sharing_cleaned_train.csv
+      - models
+    outs:
+      - models
+
+  evaluate:
+    cmd: python -m src.main --stage evaluate
+    deps:
+      - src/main.py
+      - src/train_predict.py
+      - data/processed/bike_sharing_cleaned_test.csv
+      - models
+    metrics:
+      - metrics
+
+  visualize:
+    cmd: python -m src.main --stage visualize
+    deps:
+      - src/main.py
+      - src/visualize.py
+      - metrics
+    outs:
+      - reports

@@ -21,8 +21,8 @@ class Model:
         self.name = name
         self.estimator = estimator
         self.param_grid = param_grid
-        self.preprocessor = preprocessor
         self.description = description
+        self.preprocessor = preprocessor
 
         self.pipeline = None
         self.grid_search_ = None
@@ -44,6 +44,9 @@ class Model:
         """Entrena con GridSearchCV y guarda el mejor pipeline/params/métricas de CV y tiempo de entrenamiento."""
         if self.pipeline is None:
             self.build_pipeline()
+
+        print("PIPELINE")
+        print(self.pipeline)
 
         self.grid_search = GridSearchCV(
             self.pipeline,
@@ -84,64 +87,155 @@ class Model:
 
 class Evaluator:
     """
-    Encapsula: evaluación de métricas y tiempos de inferencia.
-    Equivale a: (parte de) train_and_evaluate_model (métricas + timing).
+    Evalúa métricas sobre el conjunto de prueba y mide tiempo de inferencia.
+    Soporta:
+      - Tu clase Model (con atributo .best_estimator_)
+      - Pipelines/estimadores de sklearn ya entrenados (con .predict)
+    Solo requiere X_test e y_test.
     """
-
-    def _mape(y_true, y_pred, eps=1e-8):
-        y_true = np.asarray(y_true, dtype=float)
-        y_pred = np.asarray(y_pred, dtype=float)
-        denom = np.maximum(np.abs(y_true), eps)
-        return np.mean(np.abs((y_true - y_pred) / denom)) * 100.0
-
-    def evaluate(self, model: Model, X_train, y_train, X_test, y_test):
+    def evaluate(self, model_or_pipeline, X_test, y_test):
         """
-        Calcula métricas de train/test y tiempo de inferencia por muestra.
-        Requiere: model.fit(...) ya ejecutado.
+        Calcula métricas de prueba y tiempo de inferencia por muestra.
+        Args:
+            model_or_pipeline: Model (con .best_estimator_) o estimador/pipeline sklearn ya entrenado.
+            X_test (pd.DataFrame or np.ndarray)
+            y_test (pd.Series or np.ndarray)
+        Returns:
+            dict: {"metrics": {...}, "predictions": {"y_test_pred": ...}}
         """
-        if model.best_estimator_ is None:
-            raise RuntimeError("El modelo no ha sido entrenado. Llama a model.fit() primero.")
+        # Resolver objeto predictor (best_estimator_ si existe; si no, el propio objeto)
+        predictor = getattr(model_or_pipeline, "best_estimator_", None)
+        if predictor is None:
+            predictor = model_or_pipeline
 
-        # Predicciones
+        # Predicción + tiempo por muestra
         t0 = time.time()
-        y_train_pred = model.best_estimator_.predict(X_train)
-        y_test_pred = model.best_estimator_.predict(X_test)
+        y_pred = predictor.predict(X_test)
         infer_time_ms_per_sample = (time.time() - t0) / max(len(X_test), 1) * 1000.0
 
-        # Métricas
+        # Métricas (RMSE = sqrt(MSE) para compatibilidad)
+        mse = mean_squared_error(y_test, y_pred)
+        rmse = float(np.sqrt(mse))
+        mae  = float(mean_absolute_error(y_test, y_pred))
+        r2   = float(r2_score(y_test, y_pred))
+
         metrics = {
-            "train": {
-                "rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
-                "mae": mean_absolute_error(y_train, y_train_pred),
-                "r2": r2_score(y_train, y_train_pred),
-                "mape": self._mape(np.asarray(y_train), y_train_pred),
-            },
             "test": {
-                "rmse": np.sqrt(mean_squared_error(y_test, y_test_pred)),
-                "mae": mean_absolute_error(y_test, y_test_pred),
-                "r2": r2_score(y_test, y_test_pred),
-                "mape": self._mape(np.asarray(y_test), y_test_pred),
-            },
-            "cv": {
-                "mean_rmse": model.cv_best_rmse_,
-                "std_rmse": model.cv_std_rmse_,
+                "rmse": rmse,
+                "mae": mae,
+                "r2": r2
             },
             "timing": {
-                "train_time_seconds": model.train_time_seconds_,
-                "inference_time_ms": infer_time_ms_per_sample,
+                "inference_time_ms_per_sample": float(infer_time_ms_per_sample),
             },
-            "best_params": model.best_params_,
-            "description": model.description,
-            "model_name": model.name,
         }
 
         return {
-            "pipeline": model.best_estimator_,
             "metrics": metrics,
             "predictions": {
-                "y_train": y_train,
-                "y_train_pred": y_train_pred,
-                "y_test": y_test,
-                "y_test_pred": y_test_pred,
+                "y_test_pred": np.asarray(y_pred).tolist(),
             },
         }
+    
+    def load_metrics_and_create_comparison(self, metrics_dir: str) -> pd.DataFrame:
+        """Load metrics from JSON files and create comparison DataFrame."""
+        import os
+        import json
+        
+        all_metrics = {}
+        for fname in sorted(os.listdir(metrics_dir)):
+            if not fname.endswith(".json"):
+                continue
+                
+            if fname.endswith("_test_results.json"):
+                model_name = fname[:-17]
+            else:
+                model_name = fname[:-5]
+            
+            json_path = os.path.join(metrics_dir, fname)
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                all_metrics[model_name] = data.get("metrics", {})
+        
+        comparison_data = []
+        for model_name, metrics in all_metrics.items():
+            test_metrics = metrics.get("test", {})
+            timing_metrics = metrics.get("timing", {})
+            
+            comparison_data.append({
+                'Model': model_name.replace('_', ' ').title(),
+                'Test RMSE': test_metrics.get('rmse', 0),
+                'Test MAE': test_metrics.get('mae', 0),
+                'Test R2': test_metrics.get('r2', 0),
+                'Test MAPE': test_metrics.get('mape', 0),
+                'CV RMSE': test_metrics.get('rmse', 0),
+                'Train Time (s)': timing_metrics.get('train_time_seconds', 0),
+                'Inference (ms)': timing_metrics.get('inference_time_ms_per_sample', 0),
+                'Overfitting': 0
+            })
+        
+        df_comparison = pd.DataFrame(comparison_data)
+        return df_comparison.sort_values('Test RMSE')
+    
+    def get_best_model_predictions(self, metrics_dir: str, test_csv_path: str, target: str):
+        """Get predictions for the best performing model."""
+        import os
+        import json
+        
+        if not os.path.exists(test_csv_path):
+            return None
+            
+        comparison_df = self.load_metrics_and_create_comparison(metrics_dir)
+        if comparison_df.empty:
+            return None
+            
+        best_model_name = comparison_df.iloc[0]['Model'].lower().replace(' ', '_')
+        
+        json_filename = f"{best_model_name}_test_results.json"
+        json_path = os.path.join(metrics_dir, json_filename)
+        
+        if not os.path.exists(json_path):
+            return None
+            
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            predictions = data.get("predictions", {})
+            y_pred = np.array(predictions.get('y_test_pred', []))
+        
+        df_test = pd.read_csv(test_csv_path)
+        if target not in df_test.columns:
+            return None
+            
+        y_true = df_test[target].values
+        
+        if len(y_true) == len(y_pred) and len(y_pred) > 0:
+            return y_true, y_pred, best_model_name
+        
+        return None
+    
+    def save_comparison_table(self, df_comparison: pd.DataFrame, output_path: str):
+        """Save comparison table to CSV."""
+        df_comparison.to_csv(output_path, index=False)
+    
+    def generate_performance_report(self, df_comparison: pd.DataFrame, report_path: str):
+        """Generate markdown performance report."""
+        lines = ["# Model Performance Report\n"]
+        lines.append(f"Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        
+        best_model = df_comparison.iloc[0]
+        lines.append("## Best Model Summary")
+        lines.append(f"- **Model**: {best_model['Model']}")
+        lines.append(f"- **Test RMSE**: {best_model['Test RMSE']:.2f}")
+        lines.append(f"- **Test MAE**: {best_model['Test MAE']:.2f}")
+        lines.append(f"- **Test R²**: {best_model['Test R2']:.4f}")
+        lines.append(f"- **Inference Time**: {best_model['Inference (ms)']:.4f} ms/sample\n")
+        
+        lines.append("## All Models Comparison")
+        lines.append("| Model | Test RMSE | Test MAE | Test R² | Inference (ms) |")
+        lines.append("|-------|-----------|----------|---------|----------------|")
+        
+        for _, row in df_comparison.iterrows():
+            lines.append(f"| {row['Model']} | {row['Test RMSE']:.2f} | {row['Test MAE']:.2f} | {row['Test R2']:.4f} | {row['Inference (ms)']:.4f} |")
+        
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))

@@ -7,14 +7,10 @@ import numpy as np
 from pathlib import Path
 
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, FunctionTransformer, SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, FunctionTransformer
+from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-
 
 class DataLoader:
     """Carga y particiona datos desde CSV.
@@ -146,7 +142,8 @@ class DataLoader:
         Returns:
             X_train, X_test, y_train, y_test
         """
-        X = df.drop(self.target_col)
+        #print(f"original df head: {df[self.target_col].head()}")
+        X = df.drop(columns=[self.target_col])
         y = df[self.target_col]
 
         print(f"\nSplitting data (test_size=0.2)...")
@@ -167,7 +164,7 @@ class DataProcessor:
     column_transformer: Transformador de columnas (se construye con build()).
     """
 
-    def __init__(self, numerical_var_cols=None, categorical_var_cols=None, binned_cols=None):
+    def __init__(self, numerical_var_cols=None, categorical_var_cols=None):
         self.numerical_var_cols = numerical_var_cols
         self.categorical_var_cols = categorical_var_cols 
         self.column_transformer = None
@@ -204,9 +201,9 @@ class DataProcessor:
 
         return self.column_transformer
     
-    def transform(self, df):
+    def transform(self, X):
         """Aplica el transformador a df y retorna la matriz transformada."""
-        return self.column_transformer.fit_transform(df)
+        return self.column_transformer.fit_transform(X)
 
     
 
