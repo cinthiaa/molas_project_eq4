@@ -61,6 +61,7 @@ class DataLoader:
         """Elimina filas con valores inválidos según cat_valid_values.
         Mantiene los NaN originales sin modificarlos.
         """
+        print("\nRemoving invalid categorical data")
         df_clean = df.copy()
 
         for col, valid_values in self.cat_valid_values.items():
@@ -94,6 +95,7 @@ class DataLoader:
         Returns:
             pd.DataFrame sin filas con outliers en las columnas indicadas.
         """
+        print("\nRemoving numeric outliers")
         df_clean = df.copy()
 
         df_clean[self.num_cols] = df_clean[self.num_cols].apply(pd.to_numeric, errors="coerce")
@@ -109,6 +111,7 @@ class DataLoader:
         for col in self.num_cols:
             s = df_clean[col]
             mask_col = s.notna() & ((s < lower[col]) | (s > upper[col]))
+            print(f"\nCOL: {col} LOWER: {lower[col]} UPPER:{upper[col]}")
             if mask_col.any():
                 print(f"Se eliminarán {mask_col.sum()} registros por outliers en '{col}'.")
                 invalid |= mask_col
@@ -122,6 +125,7 @@ class DataLoader:
         1) Elimina filas con valores categóricos inválidos.
         2) Elimina filas con outliers numéricos por IQR (factor configurable).
         """
+        print("\nCleaning dataset")
         df_clean = self.remove_invalid_cat_data(df)
         df_clean = self.remove_numeric_outliers(df_clean, factor=factor)
         return df_clean

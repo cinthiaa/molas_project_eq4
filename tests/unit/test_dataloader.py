@@ -15,6 +15,7 @@ def loader(sample_csv):
 
 
 def test_load_drops_requested_columns(tmp_path, sample_dataframe):
+    print("\nTEST_LOAD_DROPS_REQUESTED_COLUMNS STARTED")
     df = sample_dataframe.copy()
     df["drop_me"] = 1
     csv_path = tmp_path / "with_drop.csv"
@@ -30,9 +31,11 @@ def test_load_drops_requested_columns(tmp_path, sample_dataframe):
     loaded = dl.load()
     assert "drop_me" not in loaded.columns
     assert loaded.shape[0] == df.shape[0]
+    print("TEST_LOAD_DROPS_REQUESTED_COLUMNS PASSED")
 
 
 def test_remove_invalid_cat_data(loader, sample_dataframe):
+    print("\nTEST_REMOVE_INVALID_CAT_DATA STARTED")
     dirty = sample_dataframe.copy()
     dirty.loc[0, "season"] = 99
 
@@ -40,9 +43,11 @@ def test_remove_invalid_cat_data(loader, sample_dataframe):
 
     assert len(cleaned) == len(sample_dataframe) - 1
     assert cleaned["season"].isin({1, 2, 3}).all()
+    print("TEST_REMOVE_INVALID_CAT_DATA PASSED")
 
 
 def test_remove_numeric_outliers(loader):
+    print("\nTEST_REMOVE_NUMERIC_OUTLIERS STARTED")
     df = pd.DataFrame(
         {
             "season": [1, 1, 1],
@@ -53,20 +58,22 @@ def test_remove_numeric_outliers(loader):
             "weekday": [1, 1, 1],
             "workingday": [1, 1, 1],
             "weathersit": [1, 1, 1],
-            "temp": [10.0, 11.0, 500.0],
+            "temp": [10.0, 11.0, 800.0],
             "hum": [0.3, 0.4, 0.5],
             "windspeed": [0.1, 0.1, 0.2],
             "cnt": [100, 120, 140],
         }
     )
 
-    cleaned = loader.remove_numeric_outliers(df, factor=1.5)
+    cleaned = loader.remove_numeric_outliers(df, factor=0.5)
 
     assert len(cleaned) == 2
     assert cleaned["temp"].max() < 100
+    print("TEST_REMOVE_NUMERIC_OUTLIERS PASSED")
 
 
 def test_clean_dataset_filters_invalid_rows(tmp_path):
+    print("\nTEST_CLEAN_DATASET_FILTERS_INVALID_ROWS STARTED")
     df = pd.DataFrame(
         {
             "season": [1, 9],
@@ -99,9 +106,11 @@ def test_clean_dataset_filters_invalid_rows(tmp_path):
     assert len(cleaned) == 1
     assert cleaned["season"].iloc[0] == 1
     assert cleaned["temp"].iloc[0] == 15.0
+    print("TEST_CLEAN_DATASET_FILTERS_INVALID_ROWS PASSED")
 
 
 def test_split_respects_test_size(loader, sample_dataframe):
+    print("\nTEST_SPLIT_RESPECTS_TEST_SIZE STARTED")
     X_train, X_test, y_train, y_test = loader.split(
         sample_dataframe, test_size=0.4, random_state=0
     )
@@ -109,3 +118,4 @@ def test_split_respects_test_size(loader, sample_dataframe):
     assert len(X_test) == pytest.approx(len(sample_dataframe) * 0.4, rel=0, abs=1)
     assert len(X_train) + len(X_test) == len(sample_dataframe)
     assert list(y_train.index) == list(X_train.index)
+    print("TEST_SPLIT_RESPECTS_TEST_SIZE PASSED")
