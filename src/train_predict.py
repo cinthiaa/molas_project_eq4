@@ -148,7 +148,7 @@ class Evaluator:
                 continue
                 
             if fname.endswith("_test_results.json"):
-                model_name = fname[:-17]
+                model_name = fname[: -len("_test_results.json")]
             else:
                 model_name = fname[:-5]
             

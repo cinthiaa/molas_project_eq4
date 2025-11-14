@@ -1,6 +1,10 @@
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import pickle
 
 import pandas as pd
@@ -11,10 +15,6 @@ from sklearn.linear_model import LinearRegression
 
 from src.data import DataProcessor
 from src.train_predict import Model
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 NUM_COLS = ["temp", "hum", "windspeed"]
 CAT_COLS = [
@@ -128,24 +128,33 @@ def orchestrator_paths(tmp_path):
 
     raw_df = pd.DataFrame(
         {
-            "instant": [1, 2],
-            "dteday": ["2011-01-01", "2011-01-02"],
-            "season": [1, 2],
-            "yr": [0, 0],
-            "mnth": [1, 1],
-            "hr": [0, 1],
-            "holiday": [0, 0],
-            "weekday": [6, 0],
-            "workingday": [0, 0],
-            "weathersit": [1, 2],
-            "temp": [9.84, 14.76],
-            "atemp": [14.395, 18.182],
-            "hum": [0.81, 0.7],
-            "windspeed": [0.0, 0.0],
-            "casual": [3, 8],
-            "registered": [13, 32],
-            "cnt": [16, 40],
-            "mixed_type_col": ["X", "Y"],
+            "instant": list(range(1, 9)),
+            "dteday": [
+                "2011-01-01",
+                "2011-01-02",
+                "2011-01-03",
+                "2011-01-04",
+                "2011-01-05",
+                "2011-01-06",
+                "2011-01-07",
+                "2011-01-08",
+            ],
+            "season": [1, 2, 3, 4, 1, 2, 3, 4],
+            "yr": [0, 0, 0, 0, 1, 1, 1, 1],
+            "mnth": [1, 1, 1, 1, 2, 2, 2, 2],
+            "hr": [0, 1, 2, 3, 4, 5, 6, 7],
+            "holiday": [0, 0, 0, 0, 0, 0, 0, 0],
+            "weekday": [6, 0, 1, 2, 3, 4, 5, 6],
+            "workingday": [0, 0, 1, 1, 1, 1, 0, 0],
+            "weathersit": [1, 2, 2, 3, 1, 2, 3, 1],
+            "temp": [9.84, 14.76, 16.66, 18.84, 20.5, 22.14, 23.0, 24.5],
+            "atemp": [14.395, 18.182, 20.454, 22.364, 24.0, 25.5, 26.0, 27.5],
+            "hum": [0.81, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4],
+            "windspeed": [0.0, 0.0, 0.1, 0.1, 0.12, 0.15, 0.2, 0.25],
+            "casual": [3, 8, 12, 15, 18, 20, 22, 25],
+            "registered": [13, 32, 45, 50, 60, 65, 70, 75],
+            "cnt": [16, 40, 57, 65, 78, 85, 92, 100],
+            "mixed_type_col": ["X", "Y", "Z", "X", "Y", "Z", "X", "Y"],
         }
     )
     raw_csv = raw_dir / "raw.csv"
