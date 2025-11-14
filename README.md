@@ -46,10 +46,11 @@ Project Organization
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
 
-HOW TO RUN EACH STAGE from mlops_eq4 directory:
-1) DATA: python src/main.py --stage=data --csv data/raw/bike_sharing_modified.csv --target cnt --cleaned_train_csv data/processed/bike_sharing_train_cleaned.csv --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv
-2) TRAIN: python src/main.py --stage=train --cleaned_train_csv data/processed/bike_sharing_train_cleaned.csv --target cnt   --models_dir models
-3) EVALUATE: python src/main.py --stage=evaluate --models_dir models --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv --target cnt --metrics_di metrics
+HOW TO RUN EACH STAGE from mlops_eq4 directory (usa el paquete `src`):
+1) DATA: `python -m src.main --stage=data --csv data/raw/bike_sharing_modified.csv --target cnt --cleaned_train_csv data/processed/bike_sharing_train_cleaned.csv --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv`
+2) TRAIN: `python -m src.main --stage=train --cleaned_train_csv data/processed/bike_sharing_train_cleaned.csv --target cnt --models_dir models`
+3) EVALUATE: `python -m src.main --stage=evaluate --models_dir models --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv --target cnt --metrics_dir metrics`
+4) VISUALIZE: `python -m src.main --stage=visualize --metrics_dir metrics --reports_dir reports`
 
 Argumento	Requerido	Descripción
 --stage	Sí	Define la etapa del pipeline a ejecutar. Las opciones válidas son:

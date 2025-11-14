@@ -18,9 +18,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 # Importar tus clases
-from data import DataLoader, DataProcessor
-from train_predict import Model , Evaluator
-from visualize import Visualizer
+from src.data import DataLoader, DataProcessor
+from src.train_predict import Model, Evaluator
+from src.visualize import Visualizer
 
 MODEL_CONFIGS = {
     "random_forest": {
