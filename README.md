@@ -148,11 +148,11 @@ nohup ./start_mlflow.sh > mlflow_server.log 2>&1 &
 # Esperar 5 segundos para que inicie
 sleep 5
 
-# Verificar que está corriendo (debe responder: OK)
+# Verificar que está corriendo (debe responder con HTML)
 curl http://127.0.0.1:5000/
 ```
 
-**Si ves "OK", el servidor está listo. Si no:**
+**Si ves el HTML", el servidor está listo. Si no:**
 ```bash
 # Ver el log para detectar errores
 tail -20 mlflow_server.log
@@ -164,37 +164,46 @@ tail -20 mlflow_server.log
 
 ## EJECUTAR PIPELINE
 
-### Opción 1: Pipeline Completo con DVC (Recomendado)
+### 🎯 Guía Rápida por Escenario
 
-Ejecuta todos los stages automáticamente en orden con un solo comando:
+Elige el escenario que mejor describe tu situación:
+
+| Escenario | Comando | Tiempo |
+|-----------|---------|--------|
+| **Primera vez / Repo nuevo** | `dvc repro --force` | 5-7 min |
+| **Descargar trabajo del equipo** | `dvc pull` → `dvc repro` | 30-60 seg |
+| **Desarrollo (cambios en código)** | `dvc repro` | Variable |
+| **Verificar que todo funciona** | `dvc repro` | < 1 seg |
+
+---
+
+### 📋 Opción 1: Primera Vez o Repo Nuevo (Recomendado)
+
+**Situación:** Acabas de clonar el repo o quieres regenerar todo desde cero.
 
 ```bash
-# Asegúrate de tener el ambiente activado y credenciales exportadas
-conda activate proyectomlops  # o source venv/bin/activate
-
+# 1. Activar ambiente y exportar credenciales
+conda activate proyectomlops
 export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
 export AWS_DEFAULT_REGION=us-east-1
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
 
-# Descargar modelos desde S3
-dvc pull models.dvc
-
-# Ejecutar pipeline completo
-dvc repro
+# 2. Ejecutar pipeline completo (FORZADO)
+dvc repro --force
 ```
 
-**¿Qué hace `dvc repro`?**
-- Ejecuta automáticamente: DATA → TRAIN → EVALUATE → VISUALIZE
-- Solo re-ejecuta stages que cambiaron (caching inteligente)
-- Genera `dvc.lock` para reproducibilidad
-- Trackea dependencias entre stages
+⏱️ **Tiempo:** 5-7 minutos (incluye entrenamiento de modelos)
+
+**¿Por qué `--force`?**
+- ✅ Garantiza que todos los stages se ejecuten
+- ✅ No depende de archivos pre-existentes en S3
+- ✅ 100% reproducible en cualquier máquina
 
 **Salida esperada:**
 ```
-'data/raw.dvc' didn't change, skipping
 Running stage 'data'...
-Running stage 'train'...
+Running stage 'train'...        ← 2-3 minutos (GridSearchCV)
 Running stage 'evaluate'...
 Running stage 'visualize'...
 Updating lock file 'dvc.lock'
@@ -202,9 +211,183 @@ Updating lock file 'dvc.lock'
 
 ---
 
-### Opción 2: Ejecutar Stages Individualmente
+### 📥 Opción 2: Descargar Trabajo del Equipo (Más Rápido)
 
-Si prefieres ejecutar cada stage por separado:
+**Situación:** Alguien del equipo ya ejecutó el pipeline y subió los resultados a S3.
+
+```bash
+# 1. Activar ambiente y exportar credenciales
+conda activate proyectomlops
+export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
+export AWS_DEFAULT_REGION=us-east-1
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+
+# 2. Descargar TODO desde S3
+dvc pull
+
+# 3. Verificar (opcional)
+dvc repro
+```
+
+⏱️ **Tiempo:** 30-60 segundos (solo descargas)
+
+**Salida esperada:**
+```
+# dvc pull:
+14 files fetched
+
+# dvc repro:
+Stage 'data' didn't change, skipping
+Stage 'train' didn't change, skipping
+Stage 'evaluate' didn't change, skipping
+Stage 'visualize' didn't change, skipping
+Data and pipelines are up to date.
+```
+
+---
+
+### 🔧 Opción 3: Desarrollo (Cambios en Código)
+
+**Situación:** Modificaste código y quieres ver el impacto.
+
+```bash
+# Activar ambiente y exportar credenciales (como antes)
+conda activate proyectomlops
+export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
+export AWS_DEFAULT_REGION=us-east-1
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+
+# Ejecutar pipeline (DVC detecta cambios automáticamente)
+dvc repro
+```
+
+**DVC detectará automáticamente qué cambió:**
+
+#### Ejemplo 1: Cambios en `src/data.py`
+```
+Running stage 'data'...         ← Re-ejecuta
+Running stage 'train'...        ← Re-ejecuta (depende de data)
+Running stage 'evaluate'...     ← Re-ejecuta (depende de train)
+Running stage 'visualize'...    ← Re-ejecuta (depende de evaluate)
+```
+
+#### Ejemplo 2: Cambios en `src/visualize.py`
+```
+Stage 'data' didn't change, skipping
+Stage 'train' didn't change, skipping
+Stage 'evaluate' didn't change, skipping
+Running stage 'visualize'...    ← Solo re-ejecuta este
+```
+
+---
+
+### 🔄 Después de Entrenar Modelos: Compartir con el Equipo
+
+**Situación:** Ejecutaste el pipeline y quieres compartir tus resultados.
+
+```bash
+# 1. Subir outputs a S3
+dvc push
+
+# 2. Verificar que se subió todo
+dvc status -c
+# Debe decir: "Cache and remote 'storage' are in sync."
+
+# 3. Commitear cambios
+git add dvc.lock models.dvc data/raw.dvc
+git commit -m "chore: update pipeline outputs after training"
+git push
+```
+
+**¿Qué se sube a S3?**
+- ✅ Modelos entrenados (`models/*.pkl`)
+- ✅ Métricas de evaluación (`metrics/*.json`)
+- ✅ Reportes y gráficas (`reports/*`)
+- ✅ Datos procesados (`data/processed/*`)
+
+---
+
+### ⚠️ Troubleshooting: Problemas Comunes con DVC
+
+#### ❌ Error: "Stage didn't change, skipping" pero faltan archivos
+
+**Causa:** DVC detecta que el código no cambió, pero no tienes los outputs localmente.
+
+**Solución:**
+```bash
+# Opción 1: Descargar desde S3
+dvc pull
+
+# Opción 2: Forzar re-ejecución
+dvc repro --force
+
+# Opción 3: Limpiar y regenerar
+rm -rf models/ metrics/ reports/ data/processed/
+dvc repro --force
+```
+
+---
+
+#### ❌ Error: "Missing cache files" o "failed to pull"
+
+**Causa:** Los archivos no están en S3 (nadie los subió).
+
+**Solución:**
+```bash
+# Regenerar todo localmente
+dvc repro --force
+
+# Subir a S3 para el equipo
+dvc push
+```
+
+---
+
+#### ❌ Error: "Can't remove unsaved files without confirmation"
+
+**Causa:** Tienes archivos locales que no están en el caché de DVC.
+
+**Solución:**
+```bash
+# Forzar pull (sobrescribe archivos locales)
+dvc pull --force
+
+# O regenerar desde cero
+rm -rf models/ metrics/ reports/ data/processed/
+dvc repro --force
+```
+
+---
+
+### 💡 Comandos Útiles de DVC
+
+```bash
+# Ver qué stages necesitan ejecutarse
+dvc status
+
+# Ver qué archivos necesitan subirse a S3
+dvc status -c
+
+# Ver diferencias en métricas entre runs
+dvc metrics show
+
+# Ver el DAG del pipeline
+dvc dag
+
+# Limpiar caché local no usado
+dvc gc --workspace
+
+# Forzar un stage específico
+dvc repro --force train
+```
+
+---
+
+### 🔨 Opción 4: Ejecutar Stages Individualmente (Avanzado)
+
+Si prefieres ejecutar cada stage por separado para debugging o desarrollo:
 
 ### ⚠️ ANTES DE EJECUTAR CUALQUIER STAGE:
 
@@ -217,7 +400,7 @@ source venv/bin/activate      # Si usas venv
 
 **2. Asegúrate de que el servidor MLflow esté corriendo:**
 ```bash
-curl http://127.0.0.1:5000/health  # Debe responder: OK
+curl http://127.0.0.1:5000/  # Debe responder con HTML
 ```
 
 **3. Exportar credenciales AWS (reemplazar con tus credenciales del archivo accessKeys.csv):**
@@ -380,7 +563,7 @@ lsof -ti:5000 | xargs kill -9
 # Reiniciar servidor MLflow
 nohup ./start_mlflow.sh > mlflow_server.log 2>&1 &
 sleep 5
-curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/
 ```
 
 ---
@@ -405,7 +588,7 @@ cp data/bike_sharing_modified.csv data/raw/
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
 
 # O verificar que el servidor MLflow esté corriendo
-curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/
 ```
 
 ---
@@ -437,7 +620,7 @@ which python  # Debe mostrar ruta del ambiente virtual
 pip list | grep -E "mlflow|pandas|scikit-learn|boto3"
 
 # 3. Servidor MLflow corriendo
-curl http://127.0.0.1:5000/health  # Debe responder: OK
+curl http://127.0.0.1:5000/  # Debe responder con HTML
 
 # 4. Credenciales AWS configuradas
 echo $AWS_ACCESS_KEY_ID  # Debe mostrar tu access key
