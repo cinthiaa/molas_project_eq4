@@ -30,7 +30,21 @@ FROM base as dependencies
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
+# Configure pip for better reliability
+RUN pip config set global.timeout 1000 && \
+    pip config set global.retries 5
+
+# Install Python dependencies with increased timeout and retries
+# Split installation to avoid timeouts with large packages
+RUN pip install --no-cache-dir \
+    numpy==2.3.3 \
+    scipy==1.16.2 \
+    pandas==2.3.3 \
+    scikit-learn==1.7.2 \
+    matplotlib==3.10.6 \
+    seaborn==0.13.2
+
+# Install remaining dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 3: Application
