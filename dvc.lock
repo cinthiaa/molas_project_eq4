@@ -62,8 +62,8 @@ stages:
     outs:
     - path: metrics
       hash: md5
-      md5: 9de85b6034554c2ed1c5ad53143ccc04.dir
-      size: 234818
+      md5: df722934ad0684061b29861a893e7738.dir
+      size: 234802
       nfiles: 3
   visualize:
     cmd: python -m src.main --stage visualize --metrics_dir metrics 
@@ -71,8 +71,8 @@ stages:
     deps:
     - path: metrics
       hash: md5
-      md5: 9de85b6034554c2ed1c5ad53143ccc04.dir
-      size: 234818
+      md5: df722934ad0684061b29861a893e7738.dir
+      size: 234802
       nfiles: 3
     - path: src/main.py
       hash: md5
@@ -85,6 +85,6 @@ stages:
     outs:
     - path: reports
       hash: md5
-      md5: cd69c679e808f7458d30940a715f6083.dir
-      size: 485776
+      md5: 4dacd4caaf63cf2459b21d1622ac826f.dir
+      size: 434614
       nfiles: 3
