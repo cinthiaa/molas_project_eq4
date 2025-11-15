@@ -149,7 +149,7 @@ nohup ./start_mlflow.sh > mlflow_server.log 2>&1 &
 sleep 5
 
 # Verificar que está corriendo (debe responder: OK)
-curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/
 ```
 
 **Si ves "OK", el servidor está listo. Si no:**
