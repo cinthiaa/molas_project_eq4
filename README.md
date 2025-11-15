@@ -52,11 +52,13 @@ Si es tu primera vez con este proyecto, sigue estos pasos en orden:
 
 1. **Crear ambiente virtual** (conda o venv) e instalar dependencias
 2. **Configurar credenciales AWS** (crear archivo `.env` desde `.env.example`)
-3. **Preparar datos** (copiar CSV a `data/raw/`)
+3. **Descargar datos desde S3** (ejecutar `dvc pull data/raw.dvc`)
 4. **Iniciar servidor MLflow** (ejecutar `./start_mlflow.sh`)
-5. **Ejecutar pipeline** (stages: DATA → TRAIN → EVALUATE → VISUALIZE)
+5. **Ejecutar pipeline** (ejecutar `dvc repro --force`)
 
 📖 **Lee las secciones detalladas abajo si tienes dudas.**
+
+⏱️ **Tiempo total estimado:** 10-15 minutos (primera vez)
 
 ---
 
@@ -128,11 +130,32 @@ MLFLOW_ARTIFACT_ROOT=s3://itesm-mna/202502-equipo4/mlflow-artifacts
 - Reemplazar `YOUR_ACCESS_KEY_ID` y `YOUR_SECRET_ACCESS_KEY` con las credenciales reales
 - El archivo `.env` NO debe subirse a Git (ya está en `.gitignore`)
 
-### 3. Preparar datos
+### 3. Descargar datos desde S3
+
+Los datos están versionados con DVC en S3. Descárgalos con:
+
 ```bash
-mkdir -p data/raw
-cp data/bike_sharing_modified.csv data/raw/
+# Descargar datos raw desde S3
+dvc pull data/raw.dvc
+
+# Verificar que se descargaron correctamente
+ls -lh data/raw/bike_sharing_modified.csv
+# Debe mostrar: bike_sharing_modified.csv (1.6M)
 ```
+
+**Si `dvc pull` falla con "Missing cache files":**
+
+Esto significa que los datos no están en S3 todavía. Contacta al equipo para:
+- Obtener el archivo original `bike_sharing_modified.csv`
+- Colocarlo en `data/raw/bike_sharing_modified.csv`
+- Luego alguien del equipo debe hacer:
+  ```bash
+  dvc add data/raw/
+  dvc push data/raw.dvc
+  git add data/raw.dvc
+  git commit -m "chore: add raw data to DVC"
+  git push
+  ```
 
 ### 4. Iniciar servidor MLflow
 
@@ -370,6 +393,16 @@ dvc status
 # Ver qué archivos necesitan subirse a S3
 dvc status -c
 
+# Descargar archivos específicos desde S3
+dvc pull data/raw.dvc        # Solo datos raw
+dvc pull models.dvc          # Solo modelos
+dvc pull                     # Todo lo trackeado
+
+# Subir archivos específicos a S3
+dvc push data/raw.dvc        # Solo datos raw
+dvc push models.dvc          # Solo modelos
+dvc push                     # Todo lo trackeado
+
 # Ver diferencias en métricas entre runs
 dvc metrics show
 
@@ -382,6 +415,90 @@ dvc gc --workspace
 # Forzar un stage específico
 dvc repro --force train
 ```
+
+---
+
+### 📚 Flujo Completo de Trabajo en Equipo
+
+#### 🔄 Ciclo de Desarrollo Colaborativo:
+
+**Persona A (entrena modelos nuevos):**
+```bash
+# 1. Hacer cambios en código
+vim src/train_predict.py
+
+# 2. Ejecutar pipeline
+dvc repro
+
+# 3. Subir resultados a S3
+dvc push
+
+# 4. Commitear y pushear
+git add dvc.lock models.dvc
+git commit -m "feat: improve model performance"
+git push
+```
+
+**Persona B (usa los modelos de A):**
+```bash
+# 1. Obtener cambios
+git pull
+
+# 2. Descargar modelos desde S3
+dvc pull
+
+# 3. Verificar o continuar desarrollo
+dvc repro
+```
+
+---
+
+### 🎯 Entendiendo el Caching de DVC
+
+DVC usa **caching inteligente** para evitar trabajo innecesario:
+
+#### Escenario 1: Sin cambios
+```bash
+$ dvc repro
+Stage 'data' didn't change, skipping
+Stage 'train' didn't change, skipping
+Stage 'evaluate' didn't change, skipping
+Stage 'visualize' didn't change, skipping
+Data and pipelines are up to date.
+```
+⏱️ Tiempo: < 1 segundo
+
+#### Escenario 2: Cambios en código de preprocesamiento
+```bash
+$ vim src/data.py  # Modificas limpieza de datos
+$ dvc repro
+Running stage 'data'...         ← Re-ejecuta (código cambió)
+Running stage 'train'...        ← Re-ejecuta (datos cambiaron)
+Running stage 'evaluate'...     ← Re-ejecuta (modelos cambiaron)
+Running stage 'visualize'...    ← Re-ejecuta (métricas cambiaron)
+```
+⏱️ Tiempo: 5-7 minutos (todo el pipeline)
+
+#### Escenario 3: Cambios solo en visualización
+```bash
+$ vim src/visualize.py  # Modificas gráficas
+$ dvc repro
+Stage 'data' didn't change, skipping
+Stage 'train' didn't change, skipping
+Stage 'evaluate' didn't change, skipping
+Running stage 'visualize'...    ← Solo re-ejecuta este
+```
+⏱️ Tiempo: 10-15 segundos
+
+#### Escenario 4: Descarga desde S3 (trabajo del equipo)
+```bash
+$ git pull
+$ dvc pull
+Stage 'train' is cached - checking out outputs    ← Descarga desde S3
+Stage 'evaluate' is cached - checking out outputs ← Descarga desde S3
+Stage 'visualize' is cached - checking out outputs ← Descarga desde S3
+```
+⏱️ Tiempo: 30-60 segundos
 
 ---
 
@@ -569,14 +686,20 @@ curl http://127.0.0.1:5000/
 ---
 
 #### ❌ Error: "FileNotFoundError: data/raw/bike_sharing_modified.csv"
-**Causa:** El archivo de datos no está en la ubicación correcta.
+**Causa:** Los datos no se descargaron desde S3.
 
 **Solución:**
 ```bash
-# Crear directorio y copiar archivo
-mkdir -p data/raw
-cp data/bike_sharing_modified.csv data/raw/
+# Descargar datos desde S3
+dvc pull data/raw.dvc
+
+# Verificar que se descargaron
+ls -lh data/raw/bike_sharing_modified.csv
 ```
+
+**Si `dvc pull` falla:**
+- Contactar al equipo para obtener el archivo original
+- Colocarlo manualmente en `data/raw/bike_sharing_modified.csv`
 
 ---
 
