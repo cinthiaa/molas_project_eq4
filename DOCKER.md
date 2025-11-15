@@ -12,24 +12,28 @@ Este documento explica cómo usar Docker para ejecutar el proyecto de forma comp
 
 ## Arquitectura del Contenedor
 
-### Componentes:
+### Un Solo Contenedor con Múltiples Servicios:
 
-1. **mlops-app** (Puerto 8000)
-   - Aplicación principal de ML
-   - Código fuente y pipeline
+**mlops-bike-sharing** - Contenedor unificado que incluye:
+
+1. **Aplicación ML** (Puerto 8000)
+   - Código fuente y pipeline DVC
+   - Modelos entrenados
    - Listo para FastAPI
-   - Imagen: `franciscoxdocker/mlops-bike-sharing:latest`
 
-2. **mlflow** (Puerto 5001 externo, 5000 interno)
-   - Servidor MLflow para tracking
+2. **MLflow Server** (Puerto 5001 externo, 5000 interno)
+   - Servidor de tracking corriendo dentro del mismo contenedor
    - Almacenamiento de artifacts en S3
    - UI accesible en http://localhost:5001
-   - Imagen: `ghcr.io/mlflow/mlflow:v2.9.2`
 
-### Red:
-- Ambos contenedores en red `mlops-network`
-- Comunicación interna entre servicios
-- Puertos expuestos al host
+**Gestión de Servicios:**
+- Supervisor maneja ambos servicios dentro del contenedor
+- MLflow inicia automáticamente al arrancar el contenedor
+- App lista para recibir requests en puerto 8000
+
+**Puertos Expuestos:**
+- `8000` - FastAPI application (cuando se implemente)
+- `5001` - MLflow UI (mapeo de puerto 5000 interno)
 
 ---
 
@@ -101,17 +105,17 @@ docker ps
 ### 3. Verificar
 
 ```bash
-# Ver contenedores corriendo
+# Ver contenedor corriendo
 docker ps
 
 # Ver logs
 docker-compose logs -f
 
-# Verificar aplicación
-curl http://localhost:8000
+# Verificar MLflow (debe responder OK)
+curl http://localhost:5001/health
 
-# Verificar MLflow
-curl http://localhost:5000
+# Verificar que ambos servicios están corriendo dentro del contenedor
+docker exec mlops-bike-sharing ps aux | grep -E "mlflow|python"
 ```
 
 ## Flujo de Trabajo
@@ -164,7 +168,15 @@ docker exec -it mlops-bike-sharing dvc push
 ├── dvc.yaml               # Configuración pipeline
 ├── dvc.lock               # Lock file
 ├── params.yaml            # Parámetros
-└── docker-entrypoint.sh   # Script de inicialización
+├── docker-entrypoint.sh   # Script de inicialización
+└── supervisord.conf       # Configuración de supervisor
+
+/mlflow/
+└── mlflow.db              # Base de datos MLflow
+
+Servicios corriendo:
+- MLflow server (puerto 5000 interno)
+- App placeholder (puerto 8000, esperando FastAPI)
 ```
 
 ## Entrypoint Inteligente

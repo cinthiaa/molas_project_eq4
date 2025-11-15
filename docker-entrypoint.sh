@@ -35,14 +35,16 @@ if [ ! -f "data/raw/bike_sharing_modified.csv" ]; then
 fi
 
 echo "✅ Container initialized successfully"
-echo "🌐 Ready to accept requests on port 8000"
+echo "🌐 Ready to accept requests on port 8000 (FastAPI)"
+echo "📊 MLflow UI available on port 5000 (external: 5001)"
 echo ""
 echo "Available commands:"
 echo "  - Run pipeline: dvc repro"
 echo "  - Train models: python -m src.main --stage=train"
 echo "  - Make predictions: (FastAPI endpoint - to be implemented)"
+echo "  - Access MLflow: http://localhost:5001"
 echo ""
 
-# Execute the command passed to docker run
+# Execute the command passed to docker run (supervisor will start both services)
 exec "$@"
 

@@ -648,18 +648,26 @@ Docker proporciona un entorno completamente aislado y reproducible, eliminando p
 
 📖 **Para documentación completa de Docker, deployment y versionado, ver [`DOCKER.md`](DOCKER.md)**
 
-### 📦 Dos Modos de Ejecución:
+### 📦 Un Solo Contenedor con Todo Incluido:
+
+El contenedor `mlops-bike-sharing` incluye:
+- Aplicación ML (puerto 8000)
+- MLflow server (puerto 5001)
+- Pipeline DVC completo
+- Supervisor para gestionar ambos servicios
 
 **Modo Producción (Pull desde Docker Hub):**
 ```bash
 docker-compose up -d
 # Descarga imagen: franciscoxdocker/mlops-bike-sharing:latest
+# Expone puertos: 8000 (app) y 5001 (MLflow)
 ```
 
 **Modo Desarrollo (Build Local):**
 ```bash
 docker-compose -f docker-compose.dev.yml up -d
 # Construye imagen localmente desde Dockerfile
+# Expone puertos: 8000 (app) y 5001 (MLflow)
 ```
 
 ### 🚀 Inicio Rápido con Docker
@@ -675,10 +683,11 @@ cp .env.example .env
 docker-compose up -d
 
 # 3. Ver logs
-docker-compose logs -f mlops-app
+docker-compose logs -f
 
 # 4. Verificar que está corriendo
-curl http://localhost:8000
+curl http://localhost:5001/health  # MLflow
+# curl http://localhost:8000  # App (cuando FastAPI esté implementado)
 ```
 
 #### Opción 2: Usando Docker Compose - Desarrollo (Para Construir Localmente)
@@ -692,10 +701,11 @@ cp .env.example .env
 docker-compose -f docker-compose.dev.yml up -d
 
 # 3. Ver logs
-docker-compose -f docker-compose.dev.yml logs -f mlops-app
+docker-compose -f docker-compose.dev.yml logs -f
 
 # 4. Verificar que está corriendo
-curl http://localhost:8000
+curl http://localhost:5001/health  # MLflow
+# curl http://localhost:8000  # App (cuando FastAPI esté implementado)
 ```
 
 #### Opción 3: Usando Docker directamente (Avanzado)
@@ -704,10 +714,11 @@ curl http://localhost:8000
 # 1. Pull imagen desde Docker Hub
 docker pull franciscoxdocker/mlops-bike-sharing:latest
 
-# 2. Ejecutar contenedor
+# 2. Ejecutar contenedor (expone ambos puertos)
 docker run -d \
     --name mlops-bike-sharing \
     -p 8000:8000 \
+    -p 5001:5000 \
     --env-file .env \
     -v $(pwd)/models:/app/models \
     -v $(pwd)/data:/app/data \
@@ -715,6 +726,9 @@ docker run -d \
 
 # 3. Ver logs
 docker logs -f mlops-bike-sharing
+
+# 4. Verificar servicios
+curl http://localhost:5001/health  # MLflow
 ```
 
 ---
@@ -722,17 +736,24 @@ docker logs -f mlops-bike-sharing
 ### 🔧 Comandos Docker Útiles
 
 ```bash
-# Ver contenedores corriendo
+# Ver contenedor corriendo (solo 1 contenedor ahora)
 docker ps
 
 # Ver logs del contenedor
 docker logs -f mlops-bike-sharing
 
+# Ver logs de servicios específicos dentro del contenedor
+docker exec mlops-bike-sharing tail -f /tmp/mlflow.log      # MLflow
+docker exec mlops-bike-sharing tail -f /tmp/app.log         # App
+
 # Acceder al shell del contenedor
 docker exec -it mlops-bike-sharing /bin/bash
 
+# Verificar que ambos servicios están corriendo
+docker exec mlops-bike-sharing ps aux | grep -E "mlflow|supervisor"
+
 # Ejecutar pipeline dentro del contenedor
-docker exec -it mlops-bike-sharing dvc repro --force
+docker exec mlops-bike-sharing dvc repro --force
 
 # Detener contenedor
 docker-compose down
@@ -797,19 +818,22 @@ make pull-data
 
 ### 🎯 ¿Qué incluye el Contenedor Docker?
 
-**El contenedor tiene:**
+**El contenedor unificado tiene:**
 - ✅ Python 3.11 con todas las dependencias
 - ✅ Código fuente del proyecto (`src/`)
+- ✅ MLflow server corriendo internamente (puerto 5000)
+- ✅ Supervisor para gestionar múltiples servicios
 - ✅ Configuración del pipeline (`dvc.yaml`, `params.yaml`)
 - ✅ DVC configurado para S3
 - ✅ Puerto 8000 expuesto (listo para FastAPI)
-- ✅ Usuario no-root (seguridad)
+- ✅ Puerto 5001 expuesto (MLflow UI)
+- ✅ Usuario no-root para servicios (seguridad)
 - ✅ Health checks configurados
 - ✅ Entrypoint inteligente que descarga modelos desde S3
 
 **El contenedor NO incluye (se descargan de S3):**
-- ⬇️ Modelos entrenados (descarga con DVC)
-- ⬇️ Datos raw (descarga con DVC)
+- ⬇️ Modelos entrenados (descarga con DVC al iniciar)
+- ⬇️ Datos raw (descarga con DVC al iniciar)
 - ⬇️ Métricas y reportes (se generan o descargan)
 
 ---
@@ -830,8 +854,8 @@ docker-compose build
 # 3. Ejecutar en Docker
 docker-compose up -d
 
-# 4. Verificar
-curl http://localhost:8000
+# 4. Verificar servicios
+curl http://localhost:5001/health  # MLflow
 docker logs mlops-bike-sharing
 ```
 
@@ -841,18 +865,20 @@ docker logs mlops-bike-sharing
 # 1. Pull imagen (o construir)
 docker pull mlops-bike-sharing:latest
 
-# 2. Ejecutar con credenciales
+# 2. Ejecutar con credenciales (expone ambos puertos)
 docker run -d \
     --name mlops-production \
     -p 8000:8000 \
+    -p 5001:5000 \
     -e AWS_ACCESS_KEY_ID=xxx \
     -e AWS_SECRET_ACCESS_KEY=xxx \
-    mlops-bike-sharing:latest
+    franciscoxdocker/mlops-bike-sharing:latest
 
 # 3. El contenedor automáticamente:
+#    - Inicia MLflow server (puerto 5000 interno, 5001 externo)
 #    - Descarga modelos desde S3
 #    - Descarga datos desde S3
-#    - Queda listo para recibir requests
+#    - Queda listo para recibir requests en puerto 8000
 ```
 
 ---
@@ -871,15 +897,21 @@ src/
 │   └── endpoints.py     # POST /predict endpoint
 ```
 
-**Cuando FastAPI esté implementado, cambiar el CMD en Dockerfile:**
-```dockerfile
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+**Cuando FastAPI esté implementado, actualizar supervisord.conf:**
+```ini
+[program:app]
+command=uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+# Reemplazar el comando placeholder actual
 ```
 
 **Endpoints esperados:**
 - `GET /` - Info de la API
 - `GET /health` - Health check
 - `POST /predict` - Predicción de bike sharing
+
+**Servicios en el contenedor:**
+- Puerto 8000: FastAPI application
+- Puerto 5001: MLflow UI (http://localhost:5001)
 
 ---
 
