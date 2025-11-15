@@ -380,25 +380,50 @@ mlops-app:
 
 ### Comandos Completos de Build y Push
 
-**Build desde cero:**
+#### Build Multi-Arquitectura (Recomendado)
+
+Para que funcione en **todas las laptops** (Intel y Apple Silicon):
+
+```bash
+# 1. Crear builder multi-plataforma (solo primera vez)
+docker buildx create --name multiarch --driver docker-container --use
+docker buildx inspect --bootstrap
+
+# 2. Build y push para ambas arquitecturas
+docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    -t franciscoxdocker/mlops-bike-sharing:v2.0 \
+    -t franciscoxdocker/mlops-bike-sharing:latest \
+    --push \
+    .
+
+# 3. Verificar que soporta ambas arquitecturas
+docker buildx imagetools inspect franciscoxdocker/mlops-bike-sharing:latest
+# Debe mostrar: linux/amd64, linux/arm64
+```
+
+#### Build Simple (Solo para tu arquitectura)
+
 ```bash
 # 1. Construir imagen
 docker build -t mlops-bike-sharing:latest .
 
 # 2. Tag para Docker Hub
 docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:latest
-docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:v1.0
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:v2.0
 
 # 3. Login (solo primera vez)
 docker login
 
 # 4. Push a Docker Hub
 docker push franciscoxdocker/mlops-bike-sharing:latest
-docker push franciscoxdocker/mlops-bike-sharing:v1.0
+docker push franciscoxdocker/mlops-bike-sharing:v2.0
 
 # 5. Verificar en Docker Hub
 docker search franciscoxdocker/mlops-bike-sharing
 ```
+
+**⚠️ Nota:** El build simple solo funcionará en laptops con la misma arquitectura. Usa build multi-arquitectura para compatibilidad completa.
 
 ---
 

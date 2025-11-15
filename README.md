@@ -656,6 +656,11 @@ El contenedor `mlops-bike-sharing` incluye:
 - Pipeline DVC completo
 - Supervisor para gestionar ambos servicios
 
+**✅ Compatibilidad Multi-Arquitectura:**
+- Funciona en Mac Intel (linux/amd64)
+- Funciona en Mac Apple Silicon (linux/arm64)
+- Imagen: `franciscoxdocker/mlops-bike-sharing:v2.0`
+
 **Modo Producción (Pull desde Docker Hub):**
 ```bash
 docker-compose up -d
