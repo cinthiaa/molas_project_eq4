@@ -39,6 +39,11 @@ FROM dependencies as application
 # Switch to non-root user
 USER mlops
 
+# Initialize git repository (required by DVC)
+RUN git init && \
+    git config --global user.email "docker@mlops.local" && \
+    git config --global user.name "Docker MLOps"
+
 # Copy project files
 COPY --chown=mlops:mlops src/ ./src/
 COPY --chown=mlops:mlops params.yaml .
@@ -48,6 +53,10 @@ COPY --chown=mlops:mlops setup.py .
 COPY --chown=mlops:mlops .dvc/config ./.dvc/config
 COPY --chown=mlops:mlops data/raw.dvc ./data/
 COPY --chown=mlops:mlops models.dvc .
+
+# Add files to git (DVC requires git tracking)
+RUN git add . && \
+    git commit -m "Initial commit for Docker container" || true
 
 # Copy entrypoint script
 COPY --chown=mlops:mlops docker-entrypoint.sh .
@@ -68,5 +77,5 @@ ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Default command (placeholder until FastAPI is implemented)
 # When FastAPI is ready, this will be: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
-CMD ["python", "-c", "import time; print('🚀 Container ready for FastAPI implementation'); print('📡 Port 8000 exposed and waiting for requests'); print('⏳ Keeping container alive...'); time.sleep(infinity)"]
+CMD ["python", "-c", "import time; print('🚀 Container ready for FastAPI implementation'); print('📡 Port 8000 exposed and waiting for requests'); print('⏳ Keeping container alive...'); [time.sleep(60) for _ in iter(int, 1)]"]
 

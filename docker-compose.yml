@@ -13,8 +13,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
-      # MLflow Configuration
-      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      # MLflow Configuration (internal network uses port 5000, external is 5001)
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
     env_file:
       - .env
     volumes:
@@ -36,7 +36,7 @@ services:
     image: ghcr.io/mlflow/mlflow:v2.9.2
     container_name: mlops-mlflow
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}

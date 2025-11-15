@@ -622,9 +622,17 @@ python -m src.main \
 - Artifacts en S3
 
 ## ACCEDER A MLFLOW UI
+
+### Ejecución Local:
 ```bash
 # Abrir en navegador
 open http://127.0.0.1:5000
+```
+
+### Ejecución con Docker:
+```bash
+# MLflow corre en puerto 5001 (para evitar conflicto con Control Center de macOS)
+open http://127.0.0.1:5001
 ```
 
 ## DETENER SERVIDOR MLFLOW

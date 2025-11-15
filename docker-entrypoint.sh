@@ -28,9 +28,9 @@ if [ ! -f "data/raw/bike_sharing_modified.csv" ]; then
     if dvc pull data/raw.dvc 2>/dev/null; then
         echo "✅ Raw data downloaded successfully from S3"
     else
-        echo "❌ ERROR: Could not download raw data from S3."
-        echo "   Please ensure data/raw.dvc is properly configured."
-        exit 1
+        echo "⚠️  Could not download raw data from S3."
+        echo "   Data will be downloaded when pipeline runs."
+        echo "   Or mount data volume: -v \$(pwd)/data:/app/data"
     fi
 fi
 

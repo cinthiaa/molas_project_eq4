@@ -72,8 +72,6 @@ credentials
 mlflow_server.log
 start_mlflow.sh
 
-# Docker
-
 # Pycharm
 .idea
 
