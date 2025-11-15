@@ -18,37 +18,84 @@ Este documento explica cómo usar Docker para ejecutar el proyecto de forma comp
    - Aplicación principal de ML
    - Código fuente y pipeline
    - Listo para FastAPI
+   - Imagen: `franciscoxdocker/mlops-bike-sharing:latest`
 
-2. **mlflow** (Puerto 5000)
+2. **mlflow** (Puerto 5001 externo, 5000 interno)
    - Servidor MLflow para tracking
    - Almacenamiento de artifacts en S3
-   - UI accesible en http://localhost:5000
+   - UI accesible en http://localhost:5001
+   - Imagen: `ghcr.io/mlflow/mlflow:v2.9.2`
 
 ### Red:
 - Ambos contenedores en red `mlops-network`
 - Comunicación interna entre servicios
 - Puertos expuestos al host
 
-## Inicio Rápido
+---
 
-### 1. Configurar Credenciales
+## Archivos Docker Compose
 
+El proyecto incluye **dos archivos** de docker-compose para diferentes propósitos:
+
+### 1. `docker-compose.yml` - Producción (Pull desde Docker Hub)
+
+**Uso:** Para ejecutar usando imágenes pre-construidas desde Docker Hub.
+
+**Características:**
+- Descarga imagen: `franciscoxdocker/mlops-bike-sharing:latest`
+- `pull_policy: always` - Siempre verifica última versión
+- Ideal para: Equipo, testing, producción
+
+**Comando:**
 ```bash
-# Copiar template
-cp .env.example .env
-
-# Editar con tus credenciales AWS
-nano .env
+docker-compose up -d
 ```
 
-### 2. Construir y Ejecutar
+### 2. `docker-compose.dev.yml` - Desarrollo (Build Local)
+
+**Uso:** Para desarrollo local cuando necesitas construir la imagen.
+
+**Características:**
+- Construye imagen localmente desde `Dockerfile`
+- Ideal para: Desarrollo, testing de cambios, debugging
+
+**Comando:**
+```bash
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+---
+
+## Inicio Rápido
+
+### Modo 1: Producción (Recomendado para Equipo)
 
 ```bash
-# Opción A: Con Docker Compose (recomendado)
+# 1. Configurar credenciales
+cp .env.example .env
+nano .env  # Editar con credenciales AWS
+
+# 2. Ejecutar (descarga automáticamente desde Docker Hub)
 docker-compose up -d
 
-# Opción B: Solo construir
-docker build -t mlops-bike-sharing:latest .
+# 3. Verificar
+docker ps
+curl http://localhost:8000
+open http://localhost:5001  # MLflow UI
+```
+
+### Modo 2: Desarrollo (Para Construir Localmente)
+
+```bash
+# 1. Configurar credenciales
+cp .env.example .env
+nano .env
+
+# 2. Construir y ejecutar
+docker-compose -f docker-compose.dev.yml up -d
+
+# 3. Verificar
+docker ps
 ```
 
 ### 3. Verificar
@@ -228,27 +275,155 @@ curl -X POST http://localhost:8000/predict \
   -d '{"hr": 10, "temp": 0.5, "hum": 0.6, ...}'
 ```
 
-## Despliegue en Producción
+## Deployment y Versionado
 
-### Usando Docker Hub
+### Flujo Completo de Trabajo
+
+#### Para el Desarrollador (Subir Nueva Versión):
 
 ```bash
-# 1. Tag imagen
-docker tag mlops-bike-sharing:latest username/mlops-bike-sharing:v1.0
+# 1. Hacer cambios en código
+vim src/train_predict.py
 
-# 2. Push a Docker Hub
-docker push username/mlops-bike-sharing:v1.0
+# 2. Construir imagen localmente
+docker-compose -f docker-compose.dev.yml build
 
-# 3. Pull en servidor de producción
-docker pull username/mlops-bike-sharing:v1.0
+# 3. Probar localmente
+docker-compose -f docker-compose.dev.yml up -d
+docker logs mlops-bike-sharing
 
-# 4. Ejecutar
+# 4. Si funciona, tagear para Docker Hub
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:latest
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:v1.1
+
+# 5. Login a Docker Hub (solo primera vez)
+docker login
+
+# 6. Push a Docker Hub
+docker push franciscoxdocker/mlops-bike-sharing:latest
+docker push franciscoxdocker/mlops-bike-sharing:v1.1
+
+# 7. Commit y push código
+git add .
+git commit -m "feat: update feature X"
+git push
+```
+
+#### Para el Equipo (Usar Última Versión):
+
+```bash
+# 1. Obtener código actualizado
+git pull
+
+# 2. Ejecutar (automáticamente descarga última imagen)
+docker-compose up -d
+
+# 3. Verificar
+docker ps
+docker logs mlops-bike-sharing
+
+# 4. Acceder a servicios
+open http://localhost:8000  # Aplicación
+open http://localhost:5001  # MLflow UI
+```
+
+---
+
+### Estrategia de Versionado
+
+**Tags recomendados:**
+
+- `latest` - Última versión estable (siempre actualizada)
+- `v1.0`, `v1.1`, etc. - Versiones específicas (inmutables)
+- `dev` - Versión de desarrollo (opcional)
+
+**Ejemplo de versionado:**
+```bash
+# Versión 1.0 (primera release)
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:v1.0
+docker push franciscoxdocker/mlops-bike-sharing:v1.0
+
+# Actualizar latest
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:latest
+docker push franciscoxdocker/mlops-bike-sharing:latest
+
+# Versión 1.1 (con mejoras)
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:v1.1
+docker push franciscoxdocker/mlops-bike-sharing:v1.1
+docker push franciscoxdocker/mlops-bike-sharing:latest  # Actualizar latest
+```
+
+---
+
+### Usar Versión Específica
+
+Para usar una versión específica en lugar de `latest`, editar `docker-compose.yml`:
+
+```yaml
+mlops-app:
+  image: franciscoxdocker/mlops-bike-sharing:v1.0  # Versión fija
+```
+
+---
+
+### Comandos Completos de Build y Push
+
+**Build desde cero:**
+```bash
+# 1. Construir imagen
+docker build -t mlops-bike-sharing:latest .
+
+# 2. Tag para Docker Hub
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:latest
+docker tag mlops-bike-sharing:latest franciscoxdocker/mlops-bike-sharing:v1.0
+
+# 3. Login (solo primera vez)
+docker login
+
+# 4. Push a Docker Hub
+docker push franciscoxdocker/mlops-bike-sharing:latest
+docker push franciscoxdocker/mlops-bike-sharing:v1.0
+
+# 5. Verificar en Docker Hub
+docker search franciscoxdocker/mlops-bike-sharing
+```
+
+---
+
+### Despliegue en Producción
+
+#### Opción 1: Usando Docker Compose
+
+```bash
+# En servidor de producción
+git clone <repo-url>
+cd molas_project_eq4
+cp .env.example .env
+# Configurar .env con credenciales de producción
+
+# Ejecutar
+docker-compose up -d
+
+# Verificar
+docker ps
+curl http://localhost:8000
+```
+
+#### Opción 2: Docker Run Directo
+
+```bash
+# Pull imagen
+docker pull franciscoxdocker/mlops-bike-sharing:latest
+
+# Ejecutar
 docker run -d \
     --name mlops-production \
     -p 8000:8000 \
     -e AWS_ACCESS_KEY_ID=xxx \
     -e AWS_SECRET_ACCESS_KEY=xxx \
-    username/mlops-bike-sharing:v1.0
+    -e AWS_DEFAULT_REGION=us-east-1 \
+    -v /path/to/models:/app/models \
+    franciscoxdocker/mlops-bike-sharing:latest
 ```
 
 ### Usando Kubernetes (Avanzado)

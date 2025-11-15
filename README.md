@@ -646,11 +646,25 @@ pkill -f "mlflow server"
 
 Docker proporciona un entorno completamente aislado y reproducible, eliminando problemas de "funciona en mi máquina".
 
-📖 **Para documentación completa de Docker, ver [`DOCKER.md`](DOCKER.md)**
+📖 **Para documentación completa de Docker, deployment y versionado, ver [`DOCKER.md`](DOCKER.md)**
+
+### 📦 Dos Modos de Ejecución:
+
+**Modo Producción (Pull desde Docker Hub):**
+```bash
+docker-compose up -d
+# Descarga imagen: franciscoxdocker/mlops-bike-sharing:latest
+```
+
+**Modo Desarrollo (Build Local):**
+```bash
+docker-compose -f docker-compose.dev.yml up -d
+# Construye imagen localmente desde Dockerfile
+```
 
 ### 🚀 Inicio Rápido con Docker
 
-#### Opción 1: Usando Docker Compose (Recomendado)
+#### Opción 1: Usando Docker Compose - Producción (Recomendado para Equipo)
 
 ```bash
 # 1. Asegúrate de tener el archivo .env configurado
@@ -667,11 +681,28 @@ docker-compose logs -f mlops-app
 curl http://localhost:8000
 ```
 
-#### Opción 2: Usando Docker directamente
+#### Opción 2: Usando Docker Compose - Desarrollo (Para Construir Localmente)
 
 ```bash
-# 1. Construir imagen
-docker build -t mlops-bike-sharing:latest .
+# 1. Asegúrate de tener el archivo .env configurado
+cp .env.example .env
+# Editar .env con tus credenciales AWS
+
+# 2. Construir y ejecutar en modo desarrollo
+docker-compose -f docker-compose.dev.yml up -d
+
+# 3. Ver logs
+docker-compose -f docker-compose.dev.yml logs -f mlops-app
+
+# 4. Verificar que está corriendo
+curl http://localhost:8000
+```
+
+#### Opción 3: Usando Docker directamente (Avanzado)
+
+```bash
+# 1. Pull imagen desde Docker Hub
+docker pull franciscoxdocker/mlops-bike-sharing:latest
 
 # 2. Ejecutar contenedor
 docker run -d \
@@ -679,7 +710,8 @@ docker run -d \
     -p 8000:8000 \
     --env-file .env \
     -v $(pwd)/models:/app/models \
-    mlops-bike-sharing:latest
+    -v $(pwd)/data:/app/data \
+    franciscoxdocker/mlops-bike-sharing:latest
 
 # 3. Ver logs
 docker logs -f mlops-bike-sharing
@@ -725,11 +757,14 @@ El proyecto incluye un Makefile con comandos simplificados:
 # Ver todos los comandos disponibles
 make help
 
-# Construir imagen Docker
+# Construir imagen Docker (modo desarrollo)
 make docker-build
 
-# Ejecutar contenedor
+# Ejecutar contenedor (modo producción - pull desde Docker Hub)
 make docker-run
+
+# Ejecutar en modo desarrollo (build local)
+docker-compose -f docker-compose.dev.yml up -d
 
 # Ver logs
 make docker-logs
@@ -743,7 +778,7 @@ make docker-shell
 # Detener contenedor
 make docker-stop
 
-# Reconstruir y reiniciar
+# Reconstruir y reiniciar (modo desarrollo)
 make docker-restart
 
 # Ejecutar pipeline localmente (sin Docker)
@@ -753,6 +788,10 @@ make pipeline-force  # Con --force
 # Descargar datos desde S3
 make pull-data
 ```
+
+**Diferencia entre modos:**
+- `make docker-run` → Usa `docker-compose.yml` (pull desde Docker Hub)
+- `docker-compose -f docker-compose.dev.yml up` → Construye localmente
 
 ---
 

@@ -2,8 +2,9 @@ version: '3.8'
 
 services:
   mlops-app:
-    image: franciscoxdocker/mlops-bike-sharing:latest
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: mlops-bike-sharing
     ports:
       - "8000:8000"
