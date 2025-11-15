@@ -1033,9 +1033,7 @@ ls -lh data/raw/bike_sharing_modified.csv
 
 ---
 
-### 📚 Más Información
-
-Ver `SETUP_INSTRUCTIONS.md` para una guía más detallada.
+## REFERENCIA DE ARGUMENTOS
 
 Argumento	Requerido	Descripción
 --stage	Sí	Define la etapa del pipeline a ejecutar. Las opciones válidas son:
