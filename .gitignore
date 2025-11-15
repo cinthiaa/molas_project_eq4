@@ -111,3 +111,4 @@ models/random_forest_pipeline.pkl
 models/*.pkl
 /models
 /reports
+/metrics
