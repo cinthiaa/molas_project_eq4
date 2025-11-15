@@ -59,9 +59,18 @@ target/
 # DotEnv configuration
 .env
 
+# AWS Credentials
+*accessKeys*.csv
+*.pem
+credentials
+
 # Database
 *.db
 *.rdb
+
+# MLflow
+mlflow_server.log
+start_mlflow.sh
 
 # Pycharm
 .idea
@@ -80,8 +89,11 @@ target/
 !data/**/*.dvc
 !data/.gitignore
 
+# Models and outputs managed by DVC
 models/
 !models/.gitignore
+/metrics/
+/reports/
 
 
 # Mac OS-specific storage files
@@ -98,3 +110,4 @@ models/random_forest_model.pkl
 models/random_forest_pipeline.pkl
 models/*.pkl
 /models
+/reports

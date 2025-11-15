@@ -1,36 +1,31 @@
 stages:
   data:
-    cmd: python -m src.main --stage data --csv data/raw/bike_sharing_modified.csv
+    cmd: python -m src.main --stage data --csv data/raw/bike_sharing_modified.csv --target cnt --cleaned_train_csv data/processed/bike_sharing_train_cleaned.csv --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv
     deps:
       - src/main.py
       - src/data.py
       - data/raw
     outs:
       - data/processed
-      - data/interim
 
   train:
-    cmd: python -m src.main --stage train
+    cmd: python -m src.main --stage train --cleaned_train_csv data/processed/bike_sharing_train_cleaned.csv --target cnt --models_dir models
     deps:
       - src/main.py
       - src/train_predict.py
-      - data/processed/bike_sharing_cleaned_train.csv
-      - models
-    outs:
-      - models
+      - data/processed/bike_sharing_train_cleaned.csv
 
   evaluate:
-    cmd: python -m src.main --stage evaluate
+    cmd: python -m src.main --stage evaluate --models_dir models --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv --target cnt --metrics_dir metrics
     deps:
       - src/main.py
       - src/train_predict.py
-      - data/processed/bike_sharing_cleaned_test.csv
-      - models
+      - data/processed/bike_sharing_test_cleaned.csv
     metrics:
       - metrics
 
   visualize:
-    cmd: python -m src.main --stage visualize
+    cmd: python -m src.main --stage visualize --metrics_dir metrics --reports_dir reports
     deps:
       - src/main.py
       - src/visualize.py
