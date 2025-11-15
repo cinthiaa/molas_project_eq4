@@ -80,6 +80,45 @@ test_environment:
 # PROJECT RULES                                                                 #
 #################################################################################
 
+## Build Docker image
+docker-build:
+	docker build -t mlops-bike-sharing:latest .
+
+## Run Docker container
+docker-run:
+	docker-compose up -d
+
+## Stop Docker container
+docker-stop:
+	docker-compose down
+
+## View Docker logs
+docker-logs:
+	docker-compose logs -f mlops-app
+
+## Execute pipeline inside Docker
+docker-pipeline:
+	docker exec -it mlops-bike-sharing dvc repro --force
+
+## Access Docker container shell
+docker-shell:
+	docker exec -it mlops-bike-sharing /bin/bash
+
+## Rebuild and restart Docker
+docker-restart: docker-stop docker-build docker-run
+
+## Run DVC pipeline locally
+pipeline:
+	dvc repro
+
+## Run DVC pipeline with force
+pipeline-force:
+	dvc repro --force
+
+## Pull data and models from S3
+pull-data:
+	dvc pull
+
 
 
 #################################################################################

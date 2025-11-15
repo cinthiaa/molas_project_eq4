@@ -632,9 +632,280 @@ open http://127.0.0.1:5000
 pkill -f "mlflow server"
 ```
 
+---
+
+## 🐳 EJECUCIÓN CON DOCKER (Máxima Reproducibilidad)
+
+Docker proporciona un entorno completamente aislado y reproducible, eliminando problemas de "funciona en mi máquina".
+
+📖 **Para documentación completa de Docker, ver [`DOCKER.md`](DOCKER.md)**
+
+### 🚀 Inicio Rápido con Docker
+
+#### Opción 1: Usando Docker Compose (Recomendado)
+
+```bash
+# 1. Asegúrate de tener el archivo .env configurado
+cp .env.example .env
+# Editar .env con tus credenciales AWS
+
+# 2. Construir y ejecutar
+docker-compose up -d
+
+# 3. Ver logs
+docker-compose logs -f mlops-app
+
+# 4. Verificar que está corriendo
+curl http://localhost:8000
+```
+
+#### Opción 2: Usando Docker directamente
+
+```bash
+# 1. Construir imagen
+docker build -t mlops-bike-sharing:latest .
+
+# 2. Ejecutar contenedor
+docker run -d \
+    --name mlops-bike-sharing \
+    -p 8000:8000 \
+    --env-file .env \
+    -v $(pwd)/models:/app/models \
+    mlops-bike-sharing:latest
+
+# 3. Ver logs
+docker logs -f mlops-bike-sharing
+```
+
+---
+
+### 🔧 Comandos Docker Útiles
+
+```bash
+# Ver contenedores corriendo
+docker ps
+
+# Ver logs del contenedor
+docker logs -f mlops-bike-sharing
+
+# Acceder al shell del contenedor
+docker exec -it mlops-bike-sharing /bin/bash
+
+# Ejecutar pipeline dentro del contenedor
+docker exec -it mlops-bike-sharing dvc repro --force
+
+# Detener contenedor
+docker-compose down
+# O
+docker stop mlops-bike-sharing
+
+# Reconstruir imagen
+docker-compose build --no-cache
+
+# Limpiar todo (contenedores, imágenes, volúmenes)
+docker-compose down -v
+docker system prune -a
+```
+
+---
+
+### 📦 Usando Makefile (Más Fácil)
+
+El proyecto incluye un Makefile con comandos simplificados:
+
+```bash
+# Ver todos los comandos disponibles
+make help
+
+# Construir imagen Docker
+make docker-build
+
+# Ejecutar contenedor
+make docker-run
+
+# Ver logs
+make docker-logs
+
+# Ejecutar pipeline dentro de Docker
+make docker-pipeline
+
+# Acceder al shell del contenedor
+make docker-shell
+
+# Detener contenedor
+make docker-stop
+
+# Reconstruir y reiniciar
+make docker-restart
+
+# Ejecutar pipeline localmente (sin Docker)
+make pipeline
+make pipeline-force  # Con --force
+
+# Descargar datos desde S3
+make pull-data
+```
+
+---
+
+### 🎯 ¿Qué incluye el Contenedor Docker?
+
+**El contenedor tiene:**
+- ✅ Python 3.11 con todas las dependencias
+- ✅ Código fuente del proyecto (`src/`)
+- ✅ Configuración del pipeline (`dvc.yaml`, `params.yaml`)
+- ✅ DVC configurado para S3
+- ✅ Puerto 8000 expuesto (listo para FastAPI)
+- ✅ Usuario no-root (seguridad)
+- ✅ Health checks configurados
+- ✅ Entrypoint inteligente que descarga modelos desde S3
+
+**El contenedor NO incluye (se descargan de S3):**
+- ⬇️ Modelos entrenados (descarga con DVC)
+- ⬇️ Datos raw (descarga con DVC)
+- ⬇️ Métricas y reportes (se generan o descargan)
+
+---
+
+### 🔄 Flujo de Trabajo con Docker
+
+#### Desarrollo Local → Docker
+
+```bash
+# 1. Desarrollar y probar localmente
+conda activate proyectomlops
+dvc repro
+dvc push
+
+# 2. Construir imagen Docker
+docker-compose build
+
+# 3. Ejecutar en Docker
+docker-compose up -d
+
+# 4. Verificar
+curl http://localhost:8000
+docker logs mlops-bike-sharing
+```
+
+#### Despliegue en Producción
+
+```bash
+# 1. Pull imagen (o construir)
+docker pull mlops-bike-sharing:latest
+
+# 2. Ejecutar con credenciales
+docker run -d \
+    --name mlops-production \
+    -p 8000:8000 \
+    -e AWS_ACCESS_KEY_ID=xxx \
+    -e AWS_SECRET_ACCESS_KEY=xxx \
+    mlops-bike-sharing:latest
+
+# 3. El contenedor automáticamente:
+#    - Descarga modelos desde S3
+#    - Descarga datos desde S3
+#    - Queda listo para recibir requests
+```
+
+---
+
+### 🎯 Preparado para FastAPI
+
+El contenedor está **listo para recibir la implementación de FastAPI**:
+
+**Estructura esperada (cuando se implemente):**
+```
+src/
+├── api/
+│   ├── __init__.py
+│   ├── main.py          # FastAPI app
+│   ├── schemas.py       # Pydantic models
+│   └── endpoints.py     # POST /predict endpoint
+```
+
+**Cuando FastAPI esté implementado, cambiar el CMD en Dockerfile:**
+```dockerfile
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+**Endpoints esperados:**
+- `GET /` - Info de la API
+- `GET /health` - Health check
+- `POST /predict` - Predicción de bike sharing
+
+---
+
+### 🐛 Troubleshooting Docker
+
+#### ❌ Error: "Cannot connect to Docker daemon"
+**Causa:** Docker no está corriendo.
+
+**Solución:**
+```bash
+# Iniciar Docker Desktop (Mac/Windows)
+# O iniciar Docker daemon (Linux)
+sudo systemctl start docker
+```
+
+---
+
+#### ❌ Error: "Port 8000 is already in use"
+**Causa:** Otro proceso está usando el puerto 8000.
+
+**Solución:**
+```bash
+# Ver qué está usando el puerto
+lsof -ti:8000
+
+# Matar el proceso
+lsof -ti:8000 | xargs kill -9
+
+# O cambiar el puerto en docker-compose.yml
+ports:
+  - "8001:8000"  # Usar puerto 8001 en el host
+```
+
+---
+
+#### ❌ Contenedor se detiene inmediatamente
+**Causa:** Error en el entrypoint o falta de credenciales.
+
+**Solución:**
+```bash
+# Ver logs del contenedor
+docker logs mlops-bike-sharing
+
+# Ver logs en tiempo real
+docker-compose logs -f mlops-app
+
+# Ejecutar contenedor en modo interactivo para debug
+docker run -it --rm --env-file .env mlops-bike-sharing:latest /bin/bash
+```
+
+---
+
+#### ❌ Error: "DVC failed to download from S3" dentro del contenedor
+**Causa:** Credenciales AWS no pasadas correctamente al contenedor.
+
+**Solución:**
+```bash
+# Verificar que .env existe y tiene las credenciales
+cat .env
+
+# Reconstruir con credenciales correctas
+docker-compose down
+docker-compose up -d
+
+# Verificar variables dentro del contenedor
+docker exec mlops-bike-sharing env | grep AWS
+```
+
+---
+
 ## TROUBLESHOOTING
 
-### Problemas Comunes y Soluciones
+### Problemas Comunes y Soluciones (Ejecución Local)
 
 #### ❌ Error: "ModuleNotFoundError: No module named 'pandas'"
 **Causa:** No instalaste las dependencias o no activaste el ambiente.
