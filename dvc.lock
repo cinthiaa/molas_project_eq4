@@ -1,0 +1,90 @@
+schema: '2.0'
+stages:
+  data:
+    cmd: python -m src.main --stage data --csv 
+      data/raw/bike_sharing_modified.csv --target cnt --cleaned_train_csv 
+      data/processed/bike_sharing_train_cleaned.csv --cleaned_test_csv 
+      data/processed/bike_sharing_test_cleaned.csv
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: 58e51f5ae7997a5da012099c3d77e940.dir
+      size: 1686247
+      nfiles: 1
+    - path: src/data.py
+      hash: md5
+      md5: de944544bb365a5166e12432affc06d9
+      size: 7717
+    - path: src/main.py
+      hash: md5
+      md5: 0d7a17ee0c543e578dd7521a347c65cb
+      size: 20185
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: 73b26d10724d8cfd8820ec1a06649a86.dir
+      size: 852215
+      nfiles: 2
+  train:
+    cmd: python -m src.main --stage train --cleaned_train_csv 
+      data/processed/bike_sharing_train_cleaned.csv --target cnt --models_dir 
+      models
+    deps:
+    - path: data/processed/bike_sharing_train_cleaned.csv
+      hash: md5
+      md5: dc92f86f6d7ba39c09db68cc8e726501
+      size: 681594
+    - path: src/main.py
+      hash: md5
+      md5: 0d7a17ee0c543e578dd7521a347c65cb
+      size: 20185
+    - path: src/train_predict.py
+      hash: md5
+      md5: 9c73b6aae12b8086c2e2b760547556b9
+      size: 9405
+  evaluate:
+    cmd: python -m src.main --stage evaluate --models_dir models 
+      --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv --target 
+      cnt --metrics_dir metrics
+    deps:
+    - path: data/processed/bike_sharing_test_cleaned.csv
+      hash: md5
+      md5: b895c6c1285bef125f9bcbc366cf28f3
+      size: 170621
+    - path: src/main.py
+      hash: md5
+      md5: 0d7a17ee0c543e578dd7521a347c65cb
+      size: 20185
+    - path: src/train_predict.py
+      hash: md5
+      md5: 9c73b6aae12b8086c2e2b760547556b9
+      size: 9405
+    outs:
+    - path: metrics
+      hash: md5
+      md5: df722934ad0684061b29861a893e7738.dir
+      size: 234802
+      nfiles: 3
+  visualize:
+    cmd: python -m src.main --stage visualize --metrics_dir metrics 
+      --reports_dir reports
+    deps:
+    - path: metrics
+      hash: md5
+      md5: df722934ad0684061b29861a893e7738.dir
+      size: 234802
+      nfiles: 3
+    - path: src/main.py
+      hash: md5
+      md5: 0d7a17ee0c543e578dd7521a347c65cb
+      size: 20185
+    - path: src/visualize.py
+      hash: md5
+      md5: 8dbe9db3df4810fd596e0b71bce4e765
+      size: 8509
+    outs:
+    - path: reports
+      hash: md5
+      md5: 4dacd4caaf63cf2459b21d1622ac826f.dir
+      size: 434614
+      nfiles: 3

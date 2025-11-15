@@ -1,0 +1,72 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+.env
+*.log
+mlflow.db*
+mlruns/
+.dvc/tmp/
+.dvc/cache/
+
+# Documentation
+docs/
+notebooks/
+references/
+
+# Tests
+tests/
+test_*/
+*.ipynb
+
+# Large files (will be downloaded via DVC or generated)
+data/raw/
+data/processed/
+data/interim/
+models/*.pkl
+models/*.json
+metrics/
+reports/
+
+# DVC (keep .dvc files but not cache)
+.dvc/cache/
+.dvc/tmp/
+
+# Credentials
+*accessKeys*.csv
+*.pem
+credentials
+
+# Temporary files
+*.tmp
+*.bak
+nohup.out
+start_mlflow.sh
+
