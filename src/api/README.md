@@ -17,6 +17,10 @@ FastAPI Serving 101
    ```bash
    docker compose -f docker-compose.dev.yml up -d
    ```
+3. Para detener los servicios:
+   ```bash
+   docker compose -f docker-compose.dev.yml down
+   ```
 3. Healthcheck: `GET http://localhost:8000/`  
    Swagger/OpenAPI: `GET http://localhost:8000/docs`
 
