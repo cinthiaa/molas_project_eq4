@@ -21,6 +21,7 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from src.data import DataLoader, DataProcessor
 from src.train_predict import Model, Evaluator
 from src.visualize import Visualizer
+from src.data_drift import DataDriftOrchestrator, DriftDetectionConfig
 
 MODEL_CONFIGS = {
     "random_forest": {
@@ -422,6 +423,66 @@ class Orchestrator:
                 with mlflow.start_run(run_name="visualize_stage"):
                     mlflow.log_artifacts(self.reports_dir, artifact_path="reports")
 
+        elif stage == "drift_detection":
+            # Nueva sección para detección de data drift
+            cleaned_test_csv = kwargs.get("cleaned_test_csv", self.cleaned_test_csv)
+            models_dir = kwargs.get("models_dir", self.models_dir)
+            reports_dir = kwargs.get("reports_dir", self.reports_dir)
+            target = kwargs.get("target", "cnt")
+            
+            # Encontrar el mejor modelo (asume random_forest por ahora, se puede configurar)
+            model_path = os.path.join(models_dir, "random_forest.pkl")
+            if not os.path.exists(model_path):
+                # Encontrar otro tipo de modelo si no existe random_forest
+                available_models = [f for f in os.listdir(models_dir) if f.endswith('.pkl')]
+                if not available_models:
+                    raise FileNotFoundError(f"No models found in {models_dir}")
+                model_path = os.path.join(models_dir, available_models[0])
+                print(f"[DRIFT] Using model: {available_models[0]}")
+            
+            if not os.path.exists(cleaned_test_csv):
+                raise FileNotFoundError(f"Test CSV not found: {cleaned_test_csv}")
+            
+            # Inicializar configuración de drift detection
+            drift_config = DriftDetectionConfig()
+            
+            #Crear directorio de analisis de drift
+            drift_reports_dir = os.path.join(reports_dir, "drift_analysis")
+            
+            with mlflow.start_run(run_name="drift_detection_stage"):
+                # Inicializar orquestador de drift
+                drift_orchestrator = DataDriftOrchestrator(drift_config)
+                
+                # Ejecutar análisis de drift
+                drift_results = drift_orchestrator.run_drift_analysis(
+                    reference_data_path=cleaned_test_csv,
+                    model_path=model_path,
+                    target_col=target,
+                    num_cols=self.num_cols,
+                    cat_cols=self.cat_cols,
+                    output_dir=drift_reports_dir
+                )
+                
+                # Registro de reportes de artefactos de drift a MLflow
+                if os.path.isdir(drift_reports_dir):
+                    mlflow.log_artifacts(drift_reports_dir, artifact_path="drift_analysis")
+                
+                # Registro de metricas clave de drift
+                summary = drift_results.get('summary', {})
+                mlflow.log_metric("scenarios_with_drift", summary.get('scenarios_with_drift', 0))
+                mlflow.log_metric("scenarios_with_degradation", summary.get('scenarios_with_performance_degradation', 0))
+                mlflow.log_metric("total_scenarios", summary.get('total_scenarios_analyzed', 0))
+                
+                # Registro de la peor degradación de rendimiento
+                worst_scenario = summary.get('worst_performing_scenario')
+                if worst_scenario and worst_scenario in drift_results.get('scenarios', {}):
+                    worst_rmse_change = drift_results['scenarios'][worst_scenario]['performance_degradation']['rmse_change_pct']
+                    mlflow.log_metric("worst_rmse_degradation_pct", worst_rmse_change)
+                
+                print(f"[DRIFT_DETECTION] Analysis completed. Results saved to: {drift_reports_dir}")
+                print(f"[DRIFT_DETECTION] Summary: {summary.get('total_scenarios_analyzed', 0)} scenarios analyzed")
+                print(f"[DRIFT_DETECTION] Scenarios with drift: {summary.get('scenarios_with_drift', 0)}")
+                print(f"[DRIFT_DETECTION] Scenarios with performance degradation: {summary.get('scenarios_with_performance_degradation', 0)}")
 
         else:
             raise ValueError(f"Etapa desconocida: {stage}")
@@ -429,7 +490,7 @@ class Orchestrator:
 
 def build_argparser():
     p = argparse.ArgumentParser(description="ML Pipeline Orchestrator")
-    p.add_argument("--stage", required=True, choices=["data", "train", "evaluate", "visualize"],
+    p.add_argument("--stage", required=True, choices=["data", "train", "evaluate", "visualize", "drift_detection"],
                    help="Etapa a ejecutar")
     p.add_argument("--csv", help="Ruta al CSV original (solo stage=data)")
     p.add_argument("--cleaned_train_csv", default="data/processed/bike_sharing_cleaned_train.csv",
