@@ -32,3 +32,13 @@ stages:
       - metrics
     outs:
       - reports
+
+  drift_detection:
+    cmd: python -m src.main --stage drift_detection --cleaned_test_csv data/processed/bike_sharing_test_cleaned.csv --models_dir models --reports_dir reports --target cnt
+    deps:
+      - src/main.py
+      - src/data_drift.py
+      - data/processed/bike_sharing_test_cleaned.csv
+      - models
+    outs:
+      - reports/drift_analysis
